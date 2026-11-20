@@ -4,7 +4,15 @@ const S = { rechnungen: [], bank: [], sumup: [], zuordnungen: [], importe: [], k
 // Die Software arbeitet nur mit Daten ab 2026 – Älteres wird beim Import übersprungen und beim Laden ausgeblendet (bleibt in der Datenbank)
 const START_DATUM = '2026-01-01';
 const MIT_DATUM = ['rechnungen', 'bank', 'sumup', 'kasse', 'hebebuehne', 'avise'];
-const abStart = (t, r) => !MIT_DATUM.includes(t) || !r.datum || String(r.datum) >= START_DATUM;
+const VOR_START = /\b(19|20)(?:[01]\d|2[0-5])\b/;   // Jahreszahlen bis 2025
+const istAlt = (t, r) => {
+  if (!MIT_DATUM.includes(t)) return false;
+  if (r.datum && String(r.datum) < START_DATUM) return true;
+  // Rechnungen ohne Datum oder Überträge/Nummern aus dem Vorjahr („R25-0708“, „Übertrag aus Ende 2025“)
+  if (t === 'rechnungen' && (/^\s*R\s?25\s?[-\/]/i.test(r.nummer || '') || /(übertrag|uebertrag|vortrag|aus)\s.*20[0-2][0-5]/i.test((r.partner || '') + ' ' + (r.beschreibung || '')) || (!r.datum && VOR_START.test(r.nummer || '')))) return true;
+  return false;
+};
+const abStart = (t, r) => !istAlt(t, r);
 const CONFLICT = { rechnungen: 'schluessel', bank: 'schluessel', sumup: 'transaktion', kasse: 'schluessel', todos: 'schluessel', hebebuehne: 'schluessel', avise: 'schluessel' };
 
 const DB = (() => {

@@ -5,7 +5,7 @@ const NAV = [
   ['bank', 'Bank', '⇄'], ['sumup', 'SumUp / EC', '▭'], ['kasse', 'Kassenbuch', '€'], ['hebe', 'Hebebühne', '⇡'],
   ['avis', 'Zahlungsavis', '✉'], ['guv', 'GuV', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
 ];
-const PERIODS = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['quartal', 'Dieses Quartal'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Letztes Jahr'], ['12m', 'Letzte 12 Monate'], ['alle', 'Alles']];
+const PERIODS = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['quartal', 'Dieses Quartal'], ['jahr', 'Dieses Jahr'], ['12m', 'Letzte 12 Monate'], ['alle', 'Alles (ab 2026)']];
 function periodRange(p) {
   const t = todayISO(), y = +t.slice(0, 4), m = +t.slice(5, 7), pad = n => String(n).padStart(2, '0');
   const end = (yy, mm) => `${yy}-${pad(mm)}-${pad(new Date(yy, mm, 0).getDate())}`; // letzter Tag des Monats
