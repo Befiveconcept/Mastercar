@@ -3,7 +3,7 @@ const UI = { view: 'start', period: 'jahr', filt: { ausgang: 'alle', eingang: 'a
 const NAV = [
   ['start', 'Übersicht', '◧'], ['todos', 'To-Dos', '☑'], ['ausgang', 'Rechnungsausgang', '↗'], ['eingang', 'Rechnungseingang', '↘'],
   ['bank', 'Bank', '⇄'], ['sumup', 'SumUp / EC', '▭'], ['kasse', 'Kassenbuch', '€'], ['hebe', 'Hebebühne', '⇡'],
-  ['guv', 'GuV', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
+  ['avis', 'Zahlungsavis', '✉'], ['guv', 'GuV', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
 ];
 const PERIODS = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['quartal', 'Dieses Quartal'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Letztes Jahr'], ['12m', 'Letzte 12 Monate'], ['alle', 'Alles']];
 function periodRange(p) {
@@ -146,15 +146,24 @@ function startHero() {
 
 /* ---------- Listen ---------- */
 const FILT_R = [['alle', 'Alle'], ['offen', 'Offen'], ['ueberfaellig', 'Überfällig'], ['probleme', 'Zu viel / zu wenig / doppelt'], ['bezahlt', 'Bezahlt'], ['pruefen', 'Zu prüfen']];
+// Vermerk „Verknüpft“: Zahlungsavis, Gutschrift ↔ Rechnung
+function verkTxt(r) {
+  const t = [];
+  const av = typeof avisVermerk === 'function' ? avisVermerk(r) : ''; if (av) t.push(av);
+  if (r.bezug_id) { const o = S.rechnungen.find(x => x.id === r.bezug_id); if (o) t.push(`↔ gehört zu RE ${o.nummer || ''}`); }
+  (IDX.gsByR && IDX.gsByR.get(r.id) || []).forEach(g => t.push(`↔ ${g.art || 'Gutschrift'} ${g.nummer || ''} ${fmtE(g.brutto)}`.replace(/\s+/g, ' ')));
+  return t.join(' · ');
+}
 const DOK_ARTEN = ['Zahlungsavis', 'Mahnung'];   // reine Dokumente (Betrag 0), keine Buchung
 function filterR(list, f) {
   if (f === 'alle') return list;
   if (f === 'offen') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key));
   if (f === 'probleme') return list.filter(x => ['ueber', 'doppelt', 'teil'].includes(x.st.key));
-  if (f === 'bezahlt') return list.filter(x => ['bezahlt', 'erledigt', 'extern', 'storno'].includes(x.st.key));
+  if (f === 'bezahlt') return list.filter(x => ['bezahlt', 'erledigt', 'extern', 'storno', 'verrechnet'].includes(x.st.key));
   if (f === 'pruefen') return list.filter(x => !x.r.geprueft);
   if (String(f).startsWith('s:')) return list.filter(x => x.st.label === f.slice(2) && !DOK_ARTEN.includes(x.r.art));
   if (String(f).startsWith('art:')) return list.filter(x => x.r.art === f.slice(4));
+  if (f === 'avis') return list.filter(x => avisZu(x.r.id).length);
   return list.filter(x => x.st.key === f);
 }
 const textOf = r => [r.nummer, r.partner, r.kundennr, r.kennzeichen, r.beschreibung, r.kostenart, r.unterkonto, r.art, r.notiz, r.brutto, fmtE(r.brutto), fmtD(r.datum)].join(' ').toLowerCase();
@@ -235,7 +244,7 @@ function viewRechnungen(dir) {
   const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
   const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
     [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']],
-    dir === 'eingang' ? [['art:Zahlungsavis', '📨 Zahlungsavis · ' + (cnt['art:Zahlungsavis'] || 0)], ['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)]] : []);
+    dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   list = filterR(list, UI.filt[view]);
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
   list.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '') || String(b.r.nummer || '').localeCompare(String(a.r.nummer || ''), 'de', { numeric: true }));
@@ -249,6 +258,7 @@ function viewRechnungen(dir) {
     colNum('netto', 'Netto', x => x.r.netto), { k: 'mw', l: 'MwSt.?', v: x => jaNein(x.r.mwst_pflicht != null ? x.r.mwst_pflicht : Math.abs(x.r.mwst || 0) > 0.005), sel: true },
     colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true },
     colTxt('notiz', 'Notiz', x => x.r.notiz));
+  cols.push(colTxt('verk', 'Verknüpft', x => verkTxt(x.r)));
   cols.push({ k: 'st', l: 'Status', v: x => x.st.label, sel: true });
   const base = list; list = colApply(view, list, cols);
   const lim = UI.more[view] || 300, tot = sum(list, x => x.r.brutto), offen = sum(list, x => Math.max(0, x.st.offen));
@@ -270,6 +280,7 @@ function viewRechnungen(dir) {
       <td class="num">${fmtE(r.brutto)}</td><td class="num">${r.skonto ? fmtE(Math.abs(r.skonto)) : ''}</td><td class="num">${r.durchlaufend ? fmtE(r.durchlaufend) : ''}</td><td class="num">${r.netto != null ? fmtE(r.netto) : ''}</td>
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
+    <td class="small verk">${esc(verkTxt(r))}</td>
     <td class="st-td">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
@@ -290,7 +301,7 @@ function viewBank() {
   const base = list; list = colApply('bank', list, cols);
   const lim = UI.more.bank || 300;
   return `
-  <div class="toolbar"><h1>Bank</h1><span class="sp"></span><button class="btn primary" data-act="pick" data-t="bank">⬆ Kontoauszug (CSV/Excel) importieren</button><button class="btn" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="csv" data-v="bank">CSV</button></div>
+  <div class="toolbar"><h1>Bank</h1><span class="sp"></span><button class="btn primary" data-act="korbPick" title="PDF-Kontoauszüge, CSV oder Excel – auch mehrere auf einmal">⬆ Kontoauszüge (PDF, Excel, CSV)</button><button class="btn" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="csv" data-v="bank">CSV</button></div>
   <div class="filters">${chips('bank', FILT_B)}${searchIn('bank', 'Name, Verwendungszweck, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Umsätze · Eingänge ${fmtE(sum(list.filter(x => x.b.betrag > 0), x => x.b.betrag))} · Ausgänge ${fmtE(sum(list.filter(x => x.b.betrag < 0), x => x.b.betrag))}${colReset('bank')}</div>

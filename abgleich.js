@@ -3,9 +3,10 @@
 const ZIEL_TAGE = () => +(S.einstellungen.zahlungsziel ?? 14);
 let IDX = { zByR: new Map(), zByB: new Map(), zByS: new Map(), zByK: new Map() };
 function buildIdx() {
-  const m = () => new Map(); IDX = { zByR: m(), zByB: m(), zByS: m(), zByK: m() };
+  const m = () => new Map(); IDX = { zByR: m(), zByB: m(), zByS: m(), zByK: m(), gsByR: m() };
   const push = (map, k, z) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(z); };
   S.zuordnungen.forEach(z => { push(IDX.zByR, z.rechnung_id, z); push(IDX.zByB, z.bank_id, z); push(IDX.zByS, z.sumup_id, z); push(IDX.zByK, z.kasse_id, z); });
+  S.rechnungen.forEach(r => { if (r.bezug_id && r.bezug_id !== r.id) push(IDX.gsByR, r.bezug_id, r); });   // Gutschriften/Korrekturen je Rechnung
 }
 // Zu zahlender Betrag (Skonto abgezogen)
 const sollOf = r => r2((+r.brutto || 0) - (+r.skonto || 0));
@@ -31,12 +32,17 @@ const istBezahltLaut = s => /^(bezahlt|beleg fehlt|zu viel)/i.test(String(s || '
 const istStornoLaut = s => /^storn/i.test(String(s || '').trim());
 const ST_CLS = s => istBezahltLaut(s) ? (/zu viel/i.test(s) ? 'st-warn' : 'st-ok') : /^[23]\.\s*mahn/i.test(s) ? 'st-bad' : /mahn/i.test(s) ? 'st-late' : istStornoLaut(s) ? 'st-info' : /abbuchung/i.test(s) ? 'st-info' : 'st-open';
 function rStatus(r) {
-  const zs = IDX.zByR.get(r.id) || [], paid = sum(zs, z => z.betrag), brutto = sollOf(r), diff = r2(brutto - paid);
+  // Gutschrift/Korrektur, die mit einer Rechnung verknüpft ist: wird dort verrechnet, ist selbst nichts mehr offen
+  const orig = r.bezug_id && (+r.brutto || 0) < 0 ? S.rechnungen.find(x => x.id === r.bezug_id) : null;
+  if (orig) return { key: 'verrechnet', label: 'Verrechnet', cls: 'st-ok', hint: ['mit ' + (orig.nummer || 'Rechnung') + ' verrechnet', 'st-ok'], bezahlt: 0, offen: 0, zahlungen: [], gutschriften: [], bezug: orig };
+  const gs = (IDX.gsByR && IDX.gsByR.get(r.id) || []).filter(g => (+g.brutto || 0) < 0), gut = sum(gs, g => Math.abs(sollOf(g)));
+  const zs = IDX.zByR.get(r.id) || [], paid = r2(sum(zs, z => z.betrag) + gut), brutto = sollOf(r), diff = r2(brutto - paid), hatZ = zs.length || gs.length;
   const stx = r.status_excel || '', laut = istBezahltLaut(stx) || (!stx && r.bezahlt_extern);
   let key;
   if (r.erledigt || istStornoLaut(stx)) key = isStorno(r) || istStornoLaut(stx) ? 'storno' : 'erledigt';
-  else if (!zs.length && laut) key = 'extern';   // laut Liste bezahlt, Zahlung (noch) nicht gefunden
-  else if (!zs.length) { const f = faelligAm(r); key = f && f < todayISO() ? 'ueberfaellig' : 'offen'; }
+  else if (!hatZ && laut) key = 'extern';   // laut Liste bezahlt, Zahlung (noch) nicht gefunden
+  else if (!hatZ) { const f = faelligAm(r); key = f && f < todayISO() ? 'ueberfaellig' : 'offen'; }
+  else if (!zs.length && diff > 0.01) { const f = faelligAm(r); key = f && f < todayISO() ? 'ueberfaellig' : 'offen'; }   // nur teilweise gutgeschrieben, Rest offen
   else if (Math.abs(diff) <= 0.01) key = 'bezahlt';
   else if (diff > 0) key = 'teil';
   else key = zs.length >= 2 && (zs.filter(z => eq(z.betrag, brutto)).length >= 2 || eq(paid, 2 * brutto)) ? 'doppelt' : 'ueber';
@@ -47,7 +53,8 @@ function rStatus(r) {
   if (['ueber', 'doppelt', 'teil'].includes(key) && !(key === 'ueber' && /zu viel/i.test(label))) hint = R_ST[key];
   else if (key === 'ueberfaellig' && !/mahn/i.test(label)) hint = ['überfällig', 'st-late'];
   else if (key === 'bezahlt' && !istBezahltLaut(label)) hint = ['Zahlung gefunden', 'st-ok'];
-  return { key, label, cls: ST_CLS(label), hint, bezahlt: key === 'extern' ? brutto : paid, offen: key === 'erledigt' || key === 'storno' || key === 'extern' ? 0 : diff, zahlungen: zs };
+  if (!hint && gut > 0.005) hint = ['Gutschrift ' + fmtE(gut) + ' verrechnet', 'st-info'];
+  return { key, label, cls: ST_CLS(label), hint, bezahlt: key === 'extern' ? brutto : paid, offen: key === 'erledigt' || key === 'storno' || key === 'extern' ? 0 : diff, zahlungen: zs, gutschriften: gs };
 }
 // Nach einem Zahlungsfund den Status nachziehen: vollständig bezahlt → „Bezahlt“.
 // „Zu viel / zu wenig / doppelt“ bleibt nur ein Hinweis – das entscheidet ihr selbst (oft sind es Tippfehler in der Beschreibung).
@@ -205,6 +212,11 @@ async function autoAbgleich() {
     const byNr = pool.filter(r => r.nummer && nrHit(r.nummer, P));
     if (byNr.length === 1) { add(byNr[0], pay, kind, restPay, 'Rechnungsnummer im Text'); return true; }
     if (byNr.length > 1) {
+      // mehrere Nummern-Treffer: zuerst der, bei dem auch Name bzw. Betrag passt (zufällige Ziffernfolgen, z. B. in Mandats-IDs, aussortieren)
+      const nb = byNr.filter(r => nameHit(r.partner, NS) && eq(restR(r), restPay));
+      if (nb.length === 1) { add(nb[0], pay, kind, restPay, 'Rechnungsnummer, Name und Betrag'); return true; }
+      const nn = byNr.filter(r => nameHit(r.partner, NS));
+      if (nn.length === 1 && restR(nn[0]) > 0.005) { add(nn[0], pay, kind, restPay, 'Rechnungsnummer und Name'); return true; }
       const open = byNr.filter(r => restR(r) > 0.005), tot = sum(open, restR);
       if (open.length && eq(tot, restPay)) { open.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (mehrere Rechnungsnummern)')); return true; }
       return false; // unklar → von Hand
@@ -281,6 +293,7 @@ async function autoAbgleich() {
     }
   }
   buildIdx();
+  if (typeof avisAbgleich === 'function') await avisAbgleich().catch(e => console.warn(e));   // Zahlungsavise mit Abbuchungen verbinden
   return { n: newZ.length, links };
 }
 

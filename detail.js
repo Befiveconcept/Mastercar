@@ -32,6 +32,10 @@ async function rechnungDetail(id) {
           <dt>${st.offen < -0.01 ? 'Zu viel bezahlt' : 'Offen'}</dt><dd class="${Math.abs(st.offen) > 0.01 ? 'neg' : ''}"><b>${fmtE(Math.abs(st.offen))}</b></dd>
         </dl>
         ${isA ? '' : `<details class="xl"><summary>Alle Spalten wie in der Excel „Ein- und Ausgaben“</summary><dl class="dl">${eingangExcel(r).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || '–')}</dd>`).join('')}</dl></details>`}
+        ${(() => { const o = st.bezug, gs = st.gutschriften || [], av = typeof avisZu === 'function' ? avisZu(r.id) : []; if (!o && !gs.length && !av.length) return '';
+          return `<h4>Verknüpft</h4><ul class="pays">${o ? `<li data-act="rechnung" data-id="${o.id}" style="cursor:pointer"><span>↔ gehört zu Rechnung <b>${esc(o.nummer || '')}</b> · ${esc(o.partner || '')} · ${fmtD(o.datum)}</span><b>${fmtE(o.brutto)}</b></li>` : ''}
+            ${gs.map(g => `<li data-act="rechnung" data-id="${g.id}" style="cursor:pointer"><span>↔ ${esc(g.art || 'Gutschrift')} <b>${esc(g.nummer || '')}</b> · ${fmtD(g.datum)} <small class="muted">· verrechnet</small></span><b>${fmtE(g.brutto)}</b></li>`).join('')}
+            ${av.map(a => `<li data-act="avisD" data-id="${a.id}" style="cursor:pointer"><span>📨 Zahlungsavis ${esc(a.nummer || '')} · ${fmtD(a.datum)} · ${a.bank_id ? 'abgebucht' : 'Abbuchung offen'}</span><b>${a.betrag != null ? fmtE(a.betrag) : ''}</b></li>`).join('')}</ul>`; })()}
         <h4>Zahlungen</h4>
         ${st.zahlungen.length ? `<ul class="pays">${st.zahlungen.map(z => `<li><span>${payLabel(z)}${z.art === 'auto' ? ' <small class="muted">· automatisch' + (z.notiz ? ': ' + esc(z.notiz) : '') + '</small>' : z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Zuordnung lösen">✕</button></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
         <div class="btnrow">
@@ -39,6 +43,7 @@ async function rechnungDetail(id) {
           ${isA ? '<button class="btn" data-a="bar">Bar bezahlt</button>' : ''}
           <button class="btn" data-a="erl">${r.erledigt ? 'Wieder öffnen' : 'Als erledigt markieren'}</button>
           <button class="btn" data-a="edit">Bearbeiten</button>
+          ${(+r.brutto || 0) < 0 || ['Gutschrift', 'Korrektur', 'Storno'].includes(r.art) ? `<button class="btn" data-a="bezug">↔ ${r.bezug_id ? 'Andere Rechnung' : 'Mit Rechnung verknüpfen'}</button>${r.bezug_id ? '<button class="btn" data-a="bezugWeg">Verknüpfung lösen</button>' : ''}` : ''}
           <button class="btn ${r.datei ? '' : 'primary'}" data-a="beleg" title="PDF auswählen oder einfach in dieses Fenster ziehen">📎 ${r.datei ? 'PDF ersetzen' : 'PDF anhängen'}</button>
           <button class="btn" data-a="todo">☑ To-Do anlegen</button>
           ${r.geprueft ? '' : '<button class="btn" data-a="ok">✓ Geprüft</button>'}
@@ -63,6 +68,13 @@ async function rechnungDetail(id) {
     if (a === 'erl') { await DB.update('rechnungen', r.id, { erledigt: !r.erledigt }); return again(); }
     if (a === 'ok') { await DB.update('rechnungen', r.id, { geprueft: true }); return again(); }
     if (a === 'edit') return rechnungForm(r.richtung, r);
+    if (a === 'bezugWeg') { await DB.update('rechnungen', r.id, { bezug_id: null }); return again(); }
+    if (a === 'bezug') {
+      const vs = bezugFinden(null, r.partner, r), n = prompt('Nummer der Rechnung, zu der diese ' + (r.art || 'Gutschrift') + ' gehört:', vs ? vs.nummer : ''); if (!n) return;
+      const o = bezugFinden(n.trim(), r.partner, r) || S.rechnungen.find(x => x.richtung === r.richtung && x.nummer && normNr(x.nummer) === normNr(n) && x.id !== r.id);
+      if (!o) return toast('Rechnung ' + n + ' nicht gefunden.');
+      await DB.update('rechnungen', r.id, { bezug_id: o.id }); toast(`Verknüpft mit ${o.nummer} – wird dort verrechnet.`); return again();
+    }
     if (a === 'beleg') { const i = document.createElement('input'); i.type = 'file'; i.accept = '.pdf,image/*,.eml,.msg'; i.onchange = () => i.files[0] && belegZuRechnung(r.id, i.files[0]); i.click(); return; }
     if (a === 'todo') { const o = rStatus(r).offen; return todoForm(null, { rechnung_id: r.id, prio: st.key === 'ueberfaellig' || st.key === 'doppelt' ? 'hoch' : 'normal', faellig: addDays(todayISO(), 2),
       titel: isA ? (st.key === 'ueber' || st.key === 'doppelt' ? `${r.partner}: zu viel gezahlte ${fmtE(-o)} erstatten (${r.nummer || ''})` : `${r.partner} wegen offener Rechnung ${r.nummer || ''} (${fmtE(o)}) kontaktieren`) : `Rechnung ${r.nummer || ''} von ${r.partner} klären`, extern: r.partner }); }

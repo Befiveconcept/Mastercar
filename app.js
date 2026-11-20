@@ -178,7 +178,7 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (e.target.closest('select, input, textarea') && el.tagName === 'TR') return;   // Auswahlfeld in der Zeile (z. B. Status) öffnet nicht die Rechnung
   // In Fenstern nur Zeilen-Klicks (Rechnung/Bank/SumUp öffnen) global behandeln
-  if (el.closest('#sheet') && !['rechnung', 'bank', 'sumup', 'kasseD'].includes(el.dataset.act)) return;
+  if (el.closest('#sheet') && !['rechnung', 'bank', 'sumup', 'kasseD', 'avisD'].includes(el.dataset.act)) return;
   const f = A[el.dataset.act]; if (f) { e.preventDefault(); f({ ...el.dataset }); }
 });
 document.addEventListener('change', e => {

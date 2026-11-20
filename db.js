@@ -1,7 +1,7 @@
 /* Mastercar Finanzen · Datenhaltung: Supabase (online) oder Browser-Speicher (Demo-Modus) */
-const TABLES = ['rechnungen', 'bank', 'sumup', 'zuordnungen', 'importe', 'kasse', 'todos', 'hebebuehne'];
-const S = { rechnungen: [], bank: [], sumup: [], zuordnungen: [], importe: [], kasse: [], todos: [], hebebuehne: [], einstellungen: {}, user: null };
-const CONFLICT = { rechnungen: 'schluessel', bank: 'schluessel', sumup: 'transaktion', kasse: 'schluessel', todos: 'schluessel', hebebuehne: 'schluessel' };
+const TABLES = ['rechnungen', 'bank', 'sumup', 'zuordnungen', 'importe', 'kasse', 'todos', 'hebebuehne', 'avise'];
+const S = { rechnungen: [], bank: [], sumup: [], zuordnungen: [], importe: [], kasse: [], todos: [], hebebuehne: [], avise: [], einstellungen: {}, user: null };
+const CONFLICT = { rechnungen: 'schluessel', bank: 'schluessel', sumup: 'transaktion', kasse: 'schluessel', todos: 'schluessel', hebebuehne: 'schluessel', avise: 'schluessel' };
 
 const DB = (() => {
   const cfg = window.MC_CONFIG || {};
@@ -49,7 +49,7 @@ const DB = (() => {
   async function loadAll() {
     if (!cloud) { const o = local(); TABLES.forEach(t => S[t] = o[t] || []); S.einstellungen = o.einstellungen || {}; S.meName = 'Demo'; return; }
     // Tabellen der Erweiterung (02_erweiterung.sql) dürfen noch fehlen – dann leer und Hinweis
-    const res = await Promise.all(TABLES.map(t => selectAll(t).catch(e => { if (['kasse', 'todos', 'hebebuehne'].includes(t)) { S._fehlt = (S._fehlt || []).concat(t); return []; } throw e; })));
+    const res = await Promise.all(TABLES.map(t => selectAll(t).catch(e => { if (['kasse', 'todos', 'hebebuehne', 'avise'].includes(t)) { S._fehlt = (S._fehlt || []).concat(t); return []; } throw e; })));
     TABLES.forEach((t, i) => S[t] = res[i]);
     const { data } = await sb.from('einstellungen').select('*');
     S.einstellungen = Object.fromEntries((data || []).map(r => [r.schluessel, r.wert]));
@@ -86,7 +86,15 @@ const DB = (() => {
   }
   async function update(t, id, patch) {
     patch = clean(patch);
-    if (cloud) { const { error } = await sb.from(t).update(patch).eq('id', id); if (error) throw error; }
+    if (cloud) {
+      let { error } = await sb.from(t).update(patch).eq('id', id);
+      for (let tries = 0; error && tries < 8; tries++) {   // Spalte fehlt noch (SQL nicht ausgeführt) → ohne sie speichern
+        const m = String(error.message || '').match(/find the '([^']+)' column/); if (!m) break;
+        S._fehlt = (S._fehlt || []).concat(t + '.' + m[1]); delete patch[m[1]]; if (!Object.keys(patch).length) { error = null; break; }
+        ({ error } = await sb.from(t).update(patch).eq('id', id));
+      }
+      if (error) throw error;
+    }
     const r = S[t].find(x => x.id === id); if (r) Object.assign(r, patch);
     if (!cloud) saveLocal();
   }
@@ -97,7 +105,7 @@ const DB = (() => {
     // abhängige Zuordnungen wie in der Datenbank (on delete cascade) auch im Speicher entfernen
     if (t === 'rechnungen') { S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.rechnung_id)); S.todos.forEach(x => { if (set.has(x.rechnung_id)) x.rechnung_id = null; }); }
     if (t === 'kasse') S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.kasse_id));
-    if (t === 'bank') { S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.bank_id)); S.sumup.forEach(s => { if (set.has(s.bank_id)) s.bank_id = null; }); }
+    if (t === 'bank') { S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.bank_id)); S.sumup.forEach(s => { if (set.has(s.bank_id)) s.bank_id = null; }); S.avise.forEach(a => { if (set.has(a.bank_id)) a.bank_id = null; }); }
     if (t === 'sumup') S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.sumup_id));
     if (!cloud) saveLocal();
   }
