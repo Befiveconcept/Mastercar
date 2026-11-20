@@ -120,6 +120,12 @@ button.k:hover{border-color:var(--y)}
 .tb th{text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg2);position:sticky;top:0}
 .tb td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tb tr:last-child td{border-bottom:0}
+.korb{position:fixed;right:16px;bottom:16px;z-index:60;width:min(420px,calc(100vw - 32px));background:var(--surface);border:2px solid var(--y);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:10px 14px 12px}
+.korb header{display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap}.korb header .sp{flex:1}
+.korb ul{list-style:none;margin:8px 0;padding:0;max-height:38vh;overflow:auto}
+.korb li{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}.korb .kn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.korb.zu ul,.korb.zu p,.korb.zu .btnrow{display:none}.korb.zu .kz{transform:rotate(180deg)}
+.korb.zu::after{content:'Klicken zum Öffnen';display:block;font-size:12px;color:var(--muted)}
 details.xl{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding:8px 12px}details.xl summary{cursor:pointer;font-weight:700;font-size:14px}details.xl .dl{margin-top:8px}
 .tb th.srt{cursor:pointer;user-select:none}.tb th.srt:hover,.tb th.srt.on{color:var(--ink)}
 .tb th .sa{margin-left:5px;font-size:10px;opacity:.45}.tb th.srt.on .sa{opacity:1;color:var(--y-dark,var(--ink))}

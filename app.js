@@ -19,9 +19,9 @@ function shell() {
   <div class="dropveil" id="veil"><div>Loslassen zum Übernehmen<small>Excel, SumUp, Bank-CSV, Rechnungen (PDF/Foto/Mail)</small></div></div>`;
   if (DB.aiOn) { const b = document.createElement('button'); b.id = 'aicFab'; b.className = 'fab'; b.title = 'KI-Assistent'; b.textContent = '✨'; b.onclick = () => aicShow(true); document.body.appendChild(b); }
   OMNI = $('#omni'); omniWire();
-  $('#anyIn').onchange = e => { eingangDrop(e.target.files); e.target.value = ''; };
+  $('#anyIn').onchange = e => { korbAdd(e.target.files); e.target.value = ''; };
   $('#tblIn').onchange = e => { const f = e.target.files[0]; if (f) importFile(e.target.dataset.t, f); e.target.value = ''; };
-  $('#belegIn').onchange = e => { eingangDrop(e.target.files); e.target.value = ''; };
+  $('#belegIn').onchange = e => { korbAdd(e.target.files); e.target.value = ''; };
 }
 function render() {
   buildIdx();
@@ -37,14 +37,61 @@ function render() {
     if (slot) slot.replaceWith(OMNI); else if (tb) tb.after(OMNI); else main.prepend(OMNI);
     if (omniFocus) $('#oq').focus();
   }
-  if (qv) { const i = $(`[data-q="${qv}"]`); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+  twEnhance(main);
+  if (qv) { const i = $(`[data-q="${qv}"]`); if (i) { i.focus({ preventScroll: true }); i.setSelectionRange(pos, pos); } }
   window.scrollTo(0, y);
 }
+
+/* ---------- Breite Tabellen: seitlich schieben (Maus ziehen, ◀ ▶, Shift+Mausrad) und maximieren ----------
+   Jede Datentabelle bekommt eine eigene Scroll-Box mit fester Kopfzeile. Zustand (Vollbild, Scroll-Position)
+   bleibt beim Filtern/Neuzeichnen erhalten. */
+const TW = { max: null, pos: {} };
+function twEnhance(root) {
+  document.body.classList.toggle('tw-max-on', false);
+  $$('.tw', root).forEach((tw, i) => {
+    if (!tw.querySelector('thead') || tw.closest('.korb')) return;
+    const key = UI.view + ':' + i;
+    const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
+    box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
+      <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
+    box.appendChild(tw); tw.classList.add('scroll');
+    if (TW.max === key) { box.classList.add('max'); document.body.classList.add('tw-max-on'); }
+    const fr = tw.querySelector('tr.frow'), h1 = tw.querySelector('thead tr');
+    if (fr && h1) fr.querySelectorAll('th').forEach(th => th.style.top = h1.offsetHeight + 'px');
+    const p = TW.pos[key]; if (p) { tw.scrollLeft = p[0]; tw.scrollTop = p[1]; }
+    tw.addEventListener('scroll', () => { TW.pos[key] = [tw.scrollLeft, tw.scrollTop]; twPfeile(box, tw); }, { passive: true });
+    twPfeile(box, tw);
+    box.querySelector('.twbar').addEventListener('click', e => {
+      const a = e.target.closest('[data-tw]')?.dataset.tw; if (!a) return;
+      if (a === 'l' || a === 'r') tw.scrollBy({ left: (a === 'l' ? -1 : 1) * tw.clientWidth * 0.7, behavior: 'smooth' });
+      if (a === 'max') { TW.max = TW.max === key ? null : key; render(); }
+    });
+    // Mit gedrückter Maus seitlich ziehen (Klick ohne Bewegung öffnet weiter die Zeile)
+    let sx = 0, sl = 0, zieh = false, bewegt = false;
+    tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a')) return; zieh = true; bewegt = false; sx = e.clientX; sl = tw.scrollLeft; });
+    window.addEventListener('mousemove', e => { if (!zieh) return; const dx = e.clientX - sx; if (Math.abs(dx) > 5) { bewegt = true; tw.classList.add('ziehen'); } if (bewegt) { tw.scrollLeft = sl - dx; e.preventDefault(); } });
+    window.addEventListener('mouseup', () => { if (!zieh) return; zieh = false; tw.classList.remove('ziehen'); if (bewegt) setTimeout(() => bewegt = false, 0); });
+    tw.addEventListener('click', e => { if (bewegt) { e.stopPropagation(); e.preventDefault(); } }, true);
+  });
+}
+function twPfeile(box, tw) {
+  const breit = tw.scrollWidth > tw.clientWidth + 2;
+  box.classList.toggle('breit', breit);
+  const [l, r] = box.querySelectorAll('[data-tw=l],[data-tw=r]');
+  if (l) l.disabled = tw.scrollLeft <= 1; if (r) r.disabled = tw.scrollLeft + tw.clientWidth >= tw.scrollWidth - 1;
+}
+window.addEventListener('resize', () => $$('.twbox').forEach(b => twPfeile(b, $('.tw', b))));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && TW.max && !$('#sheet')) { TW.max = null; render(); } });
 
 /* ---------- Aktionen (data-act) ---------- */
 Object.assign(A, {
   go: d => { UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
+  korbGo: () => korbVerarbeiten(),
+  korbDel: d => { KORB.splice(+d.i, 1); korbRender(); },
+  korbLeer: () => { KORB.length = 0; korbRender(); },
+  korbPick: () => $('#anyIn').click(),
+  korbZu: () => $('#korb')?.classList.toggle('zu'),
   ablageWahl: async () => { await ablageWaehlen(); render(); },
   ablageAlle: () => ablageAlle(),
   ablageAus: async () => { await ablageAus(); render(); toast('Ordner-Ablage ausgeschaltet.'); },
@@ -104,16 +151,22 @@ document.addEventListener('change', e => {
 let qT; document.addEventListener('input', e => { const v = e.target.dataset && e.target.dataset.q; if (!v) return; UI.q[v] = e.target.value; UI.more[v.split('|')[0]] = 0; clearTimeout(qT); qT = setTimeout(render, 200); });
 
 // Dateien irgendwo ins Fenster ziehen
-let dragN = 0;
-document.addEventListener('dragenter', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { dragN++; $('#veil')?.classList.add('on'); } });
-document.addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#veil')?.classList.remove('on'); } });
-document.addEventListener('dragover', e => e.preventDefault());
+// Hinweis „Loslassen zum Übernehmen“: an, solange eine Datei über dem Fenster schwebt; verschwindet von selbst
+// (beim Loslassen – auch auf der Suchleiste –, beim Abbrechen oder spätestens 300 ms nach der letzten Bewegung)
+let veilT;
+const veilAus = () => { clearTimeout(veilT); $('#veil')?.classList.remove('on'); };
+const hatDateien = e => [...(e.dataTransfer?.types || [])].includes('Files');
+document.addEventListener('dragover', e => { e.preventDefault(); if (!hatDateien(e)) return; $('#veil')?.classList.add('on'); clearTimeout(veilT); veilT = setTimeout(veilAus, 300); }, true);
+document.addEventListener('drop', veilAus, true);
+document.addEventListener('dragend', veilAus, true);
+window.addEventListener('blur', veilAus);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') veilAus(); });
 document.addEventListener('drop', e => {
-  e.preventDefault(); dragN = 0; $('#veil')?.classList.remove('on'); if (!e.dataTransfer.files.length || !S.user) return;
+  e.preventDefault(); if (!e.dataTransfer.files.length || !S.user) return;
   // Rechnung geöffnet und genau ein Beleg reingezogen → an diese Rechnung hängen
   const rid = $('#sheet')?.dataset.rid, fs = [...e.dataTransfer.files];
   if (rid && fs.length === 1 && !isTable(fs[0])) return belegZuRechnung(rid, fs[0]);
-  eingangDrop(e.dataTransfer.files);
+  korbAdd(e.dataTransfer.files);   // erst sammeln, verarbeitet wird mit „Verarbeiten“
 });
 
 /* ---------- CSV-Export (für Steuerberater / Excel) ---------- */

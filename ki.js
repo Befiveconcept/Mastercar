@@ -45,14 +45,14 @@ function omniWire() {
     if (o === 'go') omniRun(inp.value); else if (o === 'file') $('#anyIn').click(); else if (o === 'mic') omniMic(e.target.closest('[data-o]'));
     else if (o === 'cam') $('#camIn', box).click(); else if (o === 'img') $('#imgIn', box).click();
   });
-  ['#camIn', '#imgIn'].forEach(s => $(s, box).onchange = e => { if (e.target.files.length) eingangDrop(e.target.files); e.target.value = ''; });
+  ['#camIn', '#imgIn'].forEach(s => $(s, box).onchange = e => { if (e.target.files.length) korbAdd(e.target.files); e.target.value = ''; });
   // Dateien in die Leiste ziehen oder einfügen
   box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('over'); });
   box.addEventListener('dragleave', e => { if (!box.contains(e.relatedTarget)) box.classList.remove('over'); });
-  box.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); box.classList.remove('over'); if (e.dataTransfer.files.length) eingangDrop(e.dataTransfer.files); });
+  box.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); box.classList.remove('over'); if (e.dataTransfer.files.length) korbAdd(e.dataTransfer.files); });
   // Einfügen: Dateien/Screenshots → Belege; langer Text (z. B. Mail) → KI fragen
   inp.addEventListener('paste', e => { const fl = [...(e.clipboardData.files || [])], t = e.clipboardData.getData('text/plain') || '';
-    if (fl.length) { e.preventDefault(); eingangDrop(fl); } else if (DB.aiOn && (/\n/.test(t.trim()) || t.length > 200)) { e.preventDefault(); aiChat('Hier ist ein Text (z. B. E-Mail). Was ist zu tun – gibt es eine Rechnung, Zahlung oder ein To-Do?\n\n' + t.slice(0, 4000)); } });
+    if (fl.length) { e.preventDefault(); korbAdd(fl); } else if (DB.aiOn && (/\n/.test(t.trim()) || t.length > 200)) { e.preventDefault(); aiChat('Hier ist ein Text (z. B. E-Mail). Was ist zu tun – gibt es eine Rechnung, Zahlung oder ein To-Do?\n\n' + t.slice(0, 4000)); } });
 }
 function omniRun(q) {
   q = String(q || '').trim().replace(/[.!]+$/, ''); if (q.length < 2) return;

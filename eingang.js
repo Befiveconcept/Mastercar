@@ -16,9 +16,34 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg","beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
+{"ist_rechnung":true,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
+Zahlungsavis (Zahlungsankündigung, Lastschrift-Vorabinformation, Zahlungsbestätigung/Überweisungsavis eines Kunden oder Lieferanten): ist_rechnung=true, art="Zahlungsavis", lieferant = wer das Avis geschickt hat, nummer = Avis-/Belegnummer, datum = Datum des Avis, brutto=0, netto=0, mwst=0, avis_betrag = genannte Zahlungssumme, avis_rechnungen = alle genannten Rechnungsnummern (z. B. ["R26-0491","4711"]).
 eigene_rechnung=true, wenn Mastercar Bornheim / VE Sportmanagement selbst die Rechnung AUSGESTELLT hat (Kundenrechnung der Werkstatt, Nummer wie R26-0491); dann bei "lieferant" den Kunden eintragen.`, { files, tier: 'quick' });
+}
+
+/* ---------- Sammelkorb: Dateien erst sammeln (mehrmals reinziehen/auswählen), dann mit einem Klick verarbeiten ---------- */
+const KORB = [];
+const kb = n => n > 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const korbIcon = f => isTable(f) ? '📊' : /\.(eml|msg)$/i.test(f.name) ? '✉️' : /^image\//.test(f.type) ? '🖼' : '📄';
+function korbAdd(files) {
+  let neu = 0;
+  [...files].forEach(f => { if (!KORB.some(k => k.name === f.name && k.size === f.size && k.lastModified === f.lastModified)) { KORB.push(f); neu++; } });
+  korbRender(true); if (neu) toast(`${neu} Datei${neu === 1 ? '' : 'en'} im Stapel – weitere dazu oder „Verarbeiten“.`);
+}
+function korbRender(auf) {
+  let el = $('#korb'); if (!KORB.length) { el?.remove(); return; }
+  if (!el) { el = document.createElement('section'); el.id = 'korb'; el.className = 'korb'; el.setAttribute('aria-label', 'Stapel zum Verarbeiten'); document.body.appendChild(el); }
+  if (auf) el.classList.remove('zu');
+  const tab = KORB.filter(isTable).length, doc = KORB.length - tab;
+  el.innerHTML = `<header data-act="korbZu"><b>📥 Stapel: ${KORB.length} Datei${KORB.length === 1 ? '' : 'en'}</b><span class="small muted">${[doc ? doc + ' Beleg' + (doc === 1 ? '' : 'e') : '', tab ? tab + ' Excel/CSV' : ''].filter(Boolean).join(' · ')}</span><span class="sp"></span><span class="kz">▾</span></header>
+    <ul>${KORB.map((f, i) => `<li><span>${korbIcon(f)}</span><span class="kn" title="${esc(f.name)}">${esc(f.name)}</span><small class="muted">${kb(f.size)}</small><button class="icon-btn" data-act="korbDel" data-i="${i}" aria-label="${esc(f.name)} entfernen">✕</button></li>`).join('')}</ul>
+    <p class="small muted">Weitere Dateien einfach ins Fenster ziehen – sie kommen dazu.</p>
+    <div class="btnrow"><button class="btn primary" data-act="korbGo">✓ Alle ${KORB.length} verarbeiten</button><button class="btn" data-act="korbPick">＋ Dateien</button><button class="btn" data-act="korbLeer">Leeren</button></div>`;
+}
+async function korbVerarbeiten() {
+  const fs = KORB.splice(0); korbRender();
+  if (fs.length) await eingangDrop(fs);
 }
 
 async function eingangDrop(fileList) {
@@ -30,7 +55,7 @@ async function eingangDrop(fileList) {
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
-  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [];
+  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [];
   // Viele PDFs: immer 3 gleichzeitig von der KI lesen lassen
   let fertig = 0;
   busy(true, `${belege.length} Beleg${belege.length === 1 ? '' : 'e'}` + (DB.aiOn ? ' – KI liest …' : ' …'));
@@ -38,6 +63,24 @@ async function eingangDrop(fileList) {
   const anhaengen = async (r, b) => {
     if (r.datei) { doppelt.push(b.name + (r.nummer ? ' (Nr. ' + r.nummer + ', hat schon eine PDF)' : '')); return; }
     await belegAnhaengen(r, b.file); if (r.richtung === 'eingang' && ablage) abgelegt++; ergaenzt.push(r);
+  };
+  // Zahlungsavis: eigener Eintrag (Art „Zahlungsavis“, Betrag 0 → zählt nicht in GuV/Offene Posten), PDF benannt und abgelegt,
+  // bei den genannten Rechnungen wird ein Hinweis in die Notiz geschrieben
+  const avisAnlegen = async (x, b) => {
+    const fh = await fileHash(b.file);
+    if (S.rechnungen.some(r => r.schluessel === 'AV:' + fh)) { doppelt.push(b.name); return; }
+    const partner = String(x.lieferant || '').trim() || (b.mail && b.mail.from ? b.mail.from.replace(/<.*>/, '').trim() : b.name);
+    const datum = parseDate(x.datum) || todayISO(), betrag = parseNum(x.avis_betrag);
+    const nrn = (Array.isArray(x.avis_rechnungen) ? x.avis_rechnungen : []).map(n => String(n).trim()).filter(Boolean);
+    const bezug = nrn.map(n => ausgangAusText(n) || S.rechnungen.find(r => r.nummer && normNr(r.nummer) === normNr(n))).filter(Boolean);
+    const row = { richtung: 'eingang', art: 'Zahlungsavis', partner, nummer: String(x.nummer || '').trim() || null, datum, brutto: 0, netto: 0, mwst: 0,
+      beschreibung: `Zahlungsavis${betrag != null ? ' über ' + fmtE(betrag) : ''}${nrn.length ? ' für ' + nrn.join(', ') : ''}`, erledigt: true, status_excel: 'Bezahlt',
+      quelle: DB.aiOn ? 'ki' : 'manuell', geprueft: false, schluessel: 'AV:' + fh,
+      notiz: bezug.length ? 'Betrifft: ' + bezug.map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(', ') : null };
+    Object.assign(row, await belegSpeichern(row, b.file)); if (ablage) abgelegt++;
+    const [n] = await DB.insert('rechnungen', [row]); if (!n) { doppelt.push(b.name); return; }
+    avise.push({ r: n, bezug });
+    for (const r of bezug) { const z = `Zahlungsavis vom ${fmtD(datum)}${betrag != null ? ' (' + fmtE(betrag) + ')' : ''} liegt vor`; if (!(r.notiz || '').includes(z)) await DB.update('rechnungen', r.id, { notiz: [r.notiz, z].filter(Boolean).join(' · ') }); }
   };
   const eins = async b => {
     try {
@@ -49,6 +92,7 @@ async function eingangDrop(fileList) {
       if (DB.aiOn) { try { x = await kiBelegLesen(b); } catch (e) { fehler.push(b.name + ': ' + aiErr(e)); } }
       if (x && x.ist_rechnung === false) { keine.push(b.name); return; }
       x = x || {};
+      if (x.art === 'Zahlungsavis') return avisAnlegen(x, b);
       if (x.eigene_rechnung) { const r = ausgangAusText(x.nummer); if (r) return anhaengen(r, b); fehler.push(`${b.name}: eigene Rechnung ${x.nummer || ''} – nicht in der App gefunden (erst das Werkstatt Journal importieren)`); return; }
       const fh = await fileHash(b.file);
       let brutto = parseNum(x.brutto), netto = parseNum(x.netto), mwst = parseNum(x.mwst);
@@ -90,6 +134,7 @@ async function eingangDrop(fileList) {
     <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
     ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${avise.length ? `<p><b>${avise.length}</b> Zahlungsavis abgelegt:</p><div class="tw"><table class="tb click"><tbody>${avise.map(({ r, bezug }) => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.beschreibung || '')}</td><td class="small">${bezug.length ? '→ ' + bezug.map(x => esc(x.nummer || '')).join(', ') : '<span class="muted">keine passende Rechnung gefunden</span>'}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${doppelt.length ? `<div class="warn">Schon vorhanden, nicht nochmal angelegt: ${doppelt.map(esc).join(', ')}</div>` : ''}
     ${keine.length ? `<div class="note">Keine Rechnung (übersprungen): ${keine.map(esc).join(', ')}</div>` : ''}
     ${fehler.length ? `<div class="warn">Probleme: ${fehler.map(esc).join('<br>')}</div>` : ''}`
