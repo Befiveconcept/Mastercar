@@ -18,9 +18,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Seite zusammenbauen
+        run: |
+          mkdir -p site/js
+          if [ -d web ]; then cp -r web/. site/; fi
+          [ -f index.html ] && cp index.html site/
+          [ -f config.js ] && cp config.js site/
+          for f in *.js; do [ -f "$f" ] && [ "$f" != config.js ] && cp "$f" site/js/; done
+          ls -R site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
