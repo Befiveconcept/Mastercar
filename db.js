@@ -1,0 +1,143 @@
+/* Mastercar Finanzen · Datenhaltung: Supabase (online) oder Browser-Speicher (Demo-Modus) */
+const TABLES = ['rechnungen', 'bank', 'sumup', 'zuordnungen', 'importe', 'kasse', 'todos', 'hebebuehne'];
+const S = { rechnungen: [], bank: [], sumup: [], zuordnungen: [], importe: [], kasse: [], todos: [], hebebuehne: [], einstellungen: {}, user: null };
+const CONFLICT = { rechnungen: 'schluessel', bank: 'schluessel', sumup: 'transaktion', kasse: 'schluessel', todos: 'schluessel', hebebuehne: 'schluessel' };
+
+const DB = (() => {
+  const cfg = window.MC_CONFIG || {};
+  const cloud = !!(cfg.url && cfg.key) && !/[?&]demo\b/.test(location.search);   // „?demo“ an der Adresse = Demo-Modus zum Ausprobieren
+  let sb = null;
+
+  /* ---------- Demo-Modus: localStorage + IndexedDB für Dateien ---------- */
+  const LS = 'mastercar-finanzen-v1';
+  const local = () => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch (e) { return {}; } };
+  const saveLocal = () => { try { const o = {}; TABLES.forEach(t => o[t] = S[t]); o.einstellungen = S.einstellungen; localStorage.setItem(LS, JSON.stringify(o)); } catch (e) { toast('Browser-Speicher voll – bitte Supabase einrichten.'); } };
+  const idb = () => new Promise((res, rej) => { const r = indexedDB.open('mastercar-belege', 1); r.onupgradeneeded = () => r.result.createObjectStore('f'); r.onsuccess = () => res(r.result); r.onerror = rej; });
+  const idbPut = async (k, v) => { const d = await idb(); return new Promise((res, rej) => { const tx = d.transaction('f', 'readwrite'); tx.objectStore('f').put(v, k); tx.oncomplete = res; tx.onerror = rej; }); };
+  const idbGet = async k => { const d = await idb(); return new Promise((res, rej) => { const r = d.transaction('f').objectStore('f').get(k); r.onsuccess = () => res(r.result); r.onerror = rej; }); };
+
+  async function init() {
+    if (!cloud) { S.user = { email: 'demo@lokal', id: 'demo' }; return S.user; }
+    sb = window.supabase.createClient(cfg.url, cfg.key, { auth: { persistSession: true, autoRefreshToken: true } });
+    const { data } = await sb.auth.getSession();
+    S.user = data.session ? data.session.user : null;
+    return S.user;
+  }
+  async function signIn(email, password) {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message === 'Invalid login credentials' ? 'E-Mail oder Passwort falsch.' : error.message);
+    S.user = data.user; return data.user;
+  }
+  async function resetPw(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split('#')[0] }); if (error) throw error; }
+  async function setPw(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; }
+  async function signOut() { if (sb) await sb.auth.signOut(); S.user = null; location.reload(); }
+  async function isStaff() { if (!cloud) return true; const { data, error } = await sb.rpc('is_staff'); return !error && data === true; }
+
+  async function selectAll(t) {
+    const out = []; const step = 1000;
+    for (let from = 0; ; from += step) {
+      const { data, error } = await sb.from(t).select('*').range(from, from + step - 1);
+      if (error) throw error; out.push(...data); if (data.length < step) break;
+    }
+    return out;
+  }
+  // „max.mustermann@…“ → „Max Mustermann“ (Rollenadressen wie info@ ergeben keinen Namen)
+  function nameAusMail(m) {
+    const p = String(m || '').split('@')[0]; if (!p || /^(info|kontakt|office|buero|werkstatt|admin|mail)$/i.test(p)) return '';
+    return p.split(/[._-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  }
+  async function loadAll() {
+    if (!cloud) { const o = local(); TABLES.forEach(t => S[t] = o[t] || []); S.einstellungen = o.einstellungen || {}; S.meName = 'Demo'; return; }
+    // Tabellen der Erweiterung (02_erweiterung.sql) dürfen noch fehlen – dann leer und Hinweis
+    const res = await Promise.all(TABLES.map(t => selectAll(t).catch(e => { if (['kasse', 'todos', 'hebebuehne'].includes(t)) { S._fehlt = (S._fehlt || []).concat(t); return []; } throw e; })));
+    TABLES.forEach((t, i) => S[t] = res[i]);
+    const { data } = await sb.from('einstellungen').select('*');
+    S.einstellungen = Object.fromEntries((data || []).map(r => [r.schluessel, r.wert]));
+    const { data: tm } = await sb.from('team').select('email,name');
+    S.team = tm || [];
+    const me = S.team.find(t => (t.email || '').toLowerCase() === (S.user?.email || '').toLowerCase());
+    S.meName = me && me.name ? me.name : nameAusMail(S.user?.email);
+  }
+  const clean = r => { const o = {}; for (const k in r) if (r[k] !== undefined && !k.startsWith('_')) o[k] = r[k] === '' ? null : r[k]; return o; };
+
+  // Einfügen; doppelte (gleicher Schlüssel) werden übersprungen. Gibt die neu angelegten Zeilen zurück.
+  async function insert(t, rows) {
+    rows = rows.map(clean); if (!rows.length) return [];
+    const key = CONFLICT[t];
+    if (!cloud) {
+      const have = new Set(key ? S[t].map(r => r[key]).filter(Boolean) : []); const added = [];
+      rows.forEach(r => { if (key && r[key] && have.has(r[key])) return; const n = { id: r.id || uid(), created_at: new Date().toISOString(), ...r }; if (key && r[key]) have.add(r[key]); S[t].push(n); added.push(n); });
+      saveLocal(); return added;
+    }
+    const added = [];
+    for (let i = 0; i < rows.length; i += 500) {
+      const part = rows.slice(i, i + 500);
+      const send = p => (key ? sb.from(t).upsert(p, { onConflict: key, ignoreDuplicates: true }) : sb.from(t).insert(p)).select();
+      let { data, error } = await send(part);
+      // Spalte fehlt in der Datenbank (neueres SQL noch nicht ausgeführt) → ohne diese Spalte speichern und Hinweis merken
+      for (let tries = 0; error && tries < 5; tries++) {
+        const m = String(error.message || '').match(/find the '([^']+)' column/); if (!m) break;
+        S._fehlt = (S._fehlt || []).concat(t + '.' + m[1]);
+        part.forEach(r => delete r[m[1]]); ({ data, error } = await send(part));
+      }
+      if (error) throw error; added.push(...(data || []));
+    }
+    S[t].push(...added); return added;
+  }
+  async function update(t, id, patch) {
+    patch = clean(patch);
+    if (cloud) { const { error } = await sb.from(t).update(patch).eq('id', id); if (error) throw error; }
+    const r = S[t].find(x => x.id === id); if (r) Object.assign(r, patch);
+    if (!cloud) saveLocal();
+  }
+  async function remove(t, ids) {
+    ids = [].concat(ids); if (!ids.length) return;
+    if (cloud) for (let i = 0; i < ids.length; i += 200) { const { error } = await sb.from(t).delete().in('id', ids.slice(i, i + 200)); if (error) throw error; }
+    const set = new Set(ids); S[t] = S[t].filter(r => !set.has(r.id));
+    // abhängige Zuordnungen wie in der Datenbank (on delete cascade) auch im Speicher entfernen
+    if (t === 'rechnungen') { S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.rechnung_id)); S.todos.forEach(x => { if (set.has(x.rechnung_id)) x.rechnung_id = null; }); }
+    if (t === 'kasse') S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.kasse_id));
+    if (t === 'bank') { S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.bank_id)); S.sumup.forEach(s => { if (set.has(s.bank_id)) s.bank_id = null; }); }
+    if (t === 'sumup') S.zuordnungen = S.zuordnungen.filter(z => !set.has(z.sumup_id));
+    if (!cloud) saveLocal();
+  }
+  async function setSetting(k, v) {
+    S.einstellungen[k] = v;
+    if (cloud) { const { error } = await sb.from('einstellungen').upsert({ schluessel: k, wert: v, updated_at: new Date().toISOString() }); if (error) throw error; }
+    else saveLocal();
+  }
+  async function upload(path, blob) {
+    if (!cloud) { await idbPut(path, blob); return path; }
+    const { error } = await sb.storage.from('belege').upload(path, blob, { contentType: blob.type || 'application/octet-stream', upsert: false });
+    if (error) throw error; return path;
+  }
+  async function fileUrl(path) {
+    if (!path) return null;
+    if (!cloud) { const b = await idbGet(path); return b ? URL.createObjectURL(b) : null; }
+    const { data, error } = await sb.storage.from('belege').createSignedUrl(path, 600); if (error) throw error; return data.signedUrl;
+  }
+
+  // KI über die Edge Function. files: [{type, data(base64)}]
+  const aiOn = cloud;
+  async function ai(prompt, { files = [], tier = 'default' } = {}) {
+    if (!aiOn) throw Object.assign(new Error('KI nur online verfügbar'), { code: 'offline' });
+    const messages = [{ role: 'user', content: prompt }];
+    const { data, error } = await sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } });
+    if (error) { const st = error.context && error.context.status; throw Object.assign(new Error(error.message), { code: st === 429 ? 'rate_limited' : st === 403 ? 'not_allowed' : st === 401 ? 'not_signed_in' : 'unavailable' }); }
+    if (data && data.error) throw Object.assign(new Error(data.error), { code: data.error });
+    return String(data && data.text || '');
+  }
+  async function aiJson(prompt, opts) {
+    const t = (await ai(prompt, opts)).replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    const a = t.indexOf('{'), b = t.indexOf('[');
+    const s = a >= 0 && (b < 0 || a < b) ? t.slice(a, t.lastIndexOf('}') + 1) : t.slice(b, t.lastIndexOf(']') + 1);
+    try { return JSON.parse(s); } catch (e) { throw Object.assign(new Error('Antwort war kein JSON'), { code: 'bad_json' }); }
+  }
+  // Demo: alles löschen
+  function resetLocal() { if (!cloud) { localStorage.removeItem(LS); TABLES.forEach(t => S[t] = []); S.einstellungen = {}; } }
+
+  return { cloud, aiOn, init, signIn, signOut, resetPw, setPw, isStaff, loadAll, insert, update, remove, setSetting, upload, fileUrl, ai, aiJson, resetLocal, saveLocal, get sb() { return sb; } };
+})();
+
+const AI_ERR = { offline: 'Die KI ist nur in der Online-Version (mit Supabase) verfügbar.', rate_limited: 'Die KI ist gerade ausgelastet – bitte gleich nochmal.', not_allowed: 'Kein Zugriff auf die KI (E-Mail nicht im Team?).', not_signed_in: 'Bitte neu anmelden.', bad_json: 'Die KI-Antwort war unvollständig – bitte nochmal versuchen.', refused: 'Die KI hat die Anfrage abgelehnt.', api_key_invalid: 'Anthropic-API-Schlüssel in Supabase fehlt oder ist ungültig.' };
+const aiErr = e => AI_ERR[e && e.code] || 'Die KI ist gerade nicht erreichbar.';
