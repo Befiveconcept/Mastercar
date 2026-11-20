@@ -1,17 +1,32 @@
 /* Mastercar Finanzen · App-Rahmen: Anmeldung, Navigation, Aktionen */
 const A = {};
 const START_HASH = location.hash;   // vor der Supabase-Anmeldung merken (die Bibliothek leert die Adresse beim Einlösen des Links)
-const VIEWS = { start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewGuv, abgleich: viewAbgleich, einst: viewEinst };
+const VIEWS = { avis: () => viewAvis(), start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewGuv, abgleich: viewAbgleich, einst: viewEinst };
 let OMNI = null;   // die Suchleiste bleibt dasselbe Element und wird bei jedem Neuzeichnen unter die Überschrift gesetzt
 
+/* Hell/Dunkel: Schieberegler (Mond links = dunkel, Sonne rechts = hell), Wahl wird im Browser gemerkt */
+const TABS = [['start', 'Übersicht', '◧'], ['eingang', 'Eingang', '↘'], ['ausgang', 'Ausgang', '↗'], ['todos', 'To-Dos', '☑']];
+const istHell = () => document.documentElement.getAttribute('data-theme') === 'light';
+function themeSwitch() {
+  return `<label class="thm" title="Hell / Dunkel umschalten"><span aria-hidden="true">🌙</span><input type="checkbox" role="switch" data-chg="theme" aria-label="Helle Ansicht" ${istHell() ? 'checked' : ''}><i></i><span aria-hidden="true">☀️</span></label>`;
+}
+function themeSetzen(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem('mc-theme', t); } catch (e) { }
+  $('meta[name=theme-color]')?.setAttribute('content', t === 'light' ? '#F3F3EF' : '#1F1F21');
+  $$('.thm input').forEach(i => i.checked = t === 'light');
+}
 function shell() {
   document.body.innerHTML = `
   <div class="app">
     <aside class="side"><div class="brand"><span class="logo">MASTERCAR</span><span class="sub">Bornheim · Finanzen</span></div>
+      <div class="side-tools"><span class="small muted thm-lbl">Ansicht</span>${themeSwitch()}</div>
+      <button class="menu-btn" data-act="menu" aria-label="Menü" aria-expanded="false">☰</button>
       <nav id="nav"></nav>
       <div class="side-foot small">VE Sportmanagement UG<br>(haftungsbeschränkt)<br><span class="${DB.cloud ? 'on' : ''}">${DB.cloud ? '● online' : '○ Demo-Modus'}</span></div></aside>
     <div class="mainwrap"><main id="main" tabindex="-1"></main></div>
   </div>
+  <nav class="tabbar" id="tabbar" aria-label="Schnellwahl"></nav>
   <div id="omniPark" hidden>${omniHtml()}</div>
   <input type="file" id="anyIn" multiple hidden accept=".xlsx,.xlsm,.xlsb,.xls,.csv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.heic,.eml,.msg">
   <input type="file" id="tblIn" hidden accept=".xlsx,.xlsm,.xlsb,.xls,.csv,.txt">
@@ -28,6 +43,10 @@ function render() {
   const probs = S.rechnungen.filter(r => ['ueber', 'doppelt', 'teil'].includes(rStatus(r).key)).length, tdf = todoFaelligAnz();
   const nb = { abgleich: probs, todos: tdf };
   $('#nav').innerHTML = NAV.map(([k, l, ic]) => `<button class="nav ${UI.view === k ? 'on' : ''}" data-act="go" data-v="${k}"><span class="ni">${ic}</span>${l}${nb[k] ? `<span class="nb">${nb[k]}</span>` : ''}</button>`).join('');
+  // Handy: Leiste unten mit den wichtigsten Bereichen + „Mehr“ (öffnet das ganze Menü)
+  const haupt = TABS.map(t => t[0]), mehrOn = !haupt.includes(UI.view);
+  $('#tabbar').innerHTML = TABS.map(([k, l, ic]) => `<button class="${UI.view === k ? 'on' : ''}" data-act="go" data-v="${k}"><b>${ic}</b>${l}${nb[k] ? `<span class="nb">${nb[k]}</span>` : ''}</button>`).join('')
+    + `<button class="${mehrOn ? 'on' : ''}" data-act="menu"><b>☰</b>${mehrOn ? esc((NAV.find(n => n[0] === UI.view) || [])[1] || 'Mehr').split(' ')[0] : 'Mehr'}${nb.abgleich && !haupt.includes('abgleich') ? `<span class="nb">${nb.abgleich}</span>` : ''}</button>`;
   const main = $('#main'), y = window.scrollY, active = document.activeElement, qv = active && active.dataset && active.dataset.q, pos = qv ? active.selectionStart : 0;
   const omniFocus = active && active.id === 'oq';
   if (OMNI) OMNI.remove();   // Leiste vor dem Neuzeichnen herausnehmen (behält Text und Ereignisse)
@@ -116,8 +135,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && TW.max && 
 
 /* ---------- Aktionen (data-act) ---------- */
 Object.assign(A, {
-  go: d => { UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
+  menu: () => { const on = document.body.classList.toggle('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', on); },
+  go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
+  avisD: d => avisDetail(d.id),
   korbGo: () => korbVerarbeiten(),
   korbDel: d => { KORB.splice(+d.i, 1); korbRender(); },
   korbLeer: () => { KORB.length = 0; korbRender(); },
@@ -163,6 +184,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const c = e.target.dataset && e.target.dataset.chg; if (!c) return;
   if (c === 'period') { UI.period = e.target.value; render(); }
+  if (c === 'theme') themeSetzen(e.target.checked ? 'light' : 'dark');
   if (c === 'colF') { const d = e.target.dataset, st = UI.cs[d.v] = UI.cs[d.v] || {}; st.f = st.f || {}; st.f[d.k] = e.target.value; UI.more[d.v] = 0; render(); }
   if (c === 'ziel') { DB.setSetting('zahlungsziel', Math.max(0, +e.target.value || 0)).then(render); }
   if (c === 'rstatus') {
@@ -242,7 +264,7 @@ async function start() {
     const u = S.user || await DB.init();
     if (!u) return loginScreen();
     if (!(await DB.isStaff())) return loginScreen('Diese E-Mail ist noch nicht freigeschaltet. Bitte in Supabase in der Tabelle „team“ eintragen.');
-    busy(true, 'Lade Daten …'); await DB.loadAll(); busy(false);
+    busy(true, 'Lade Daten …'); await DB.loadAll(); await avisUmzug().catch(e => console.warn(e)); busy(false);
     shell(); render();
     if (S._fehlt) setTimeout(() => toast('Bitte in Supabase noch „02_erweiterung.sql“ ausführen – sonst fehlen Kassenbuch, To-Dos und Hebebühne.', 9000), 600);
     // Einladungs- oder Passwort-vergessen-Link: gleich ein eigenes Passwort setzen lassen
