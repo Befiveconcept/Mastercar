@@ -31,6 +31,7 @@ function render() {
   const main = $('#main'), y = window.scrollY, active = document.activeElement, qv = active && active.dataset && active.dataset.q, pos = qv ? active.selectionStart : 0;
   const omniFocus = active && active.id === 'oq';
   if (OMNI) OMNI.remove();   // Leiste vor dem Neuzeichnen herausnehmen (behält Text und Ereignisse)
+  $$('.tw.scroll', main).forEach(t => { if (t.dataset.twk) TW.pos[t.dataset.twk] = [t.scrollLeft, t.scrollTop]; });   // Scroll-Position der Tabellen merken
   main.innerHTML = (VIEWS[UI.view] || viewStart)();
   if (OMNI) {   // Startseite: eigener Platz unter der Begrüßung · sonst direkt unter der Überschriftszeile
     const slot = $('#omniSlot', main), tb = $('.toolbar', main);
@@ -50,7 +51,7 @@ function twEnhance(root) {
   document.body.classList.toggle('tw-max-on', false);
   $$('.tw', root).forEach((tw, i) => {
     if (!tw.querySelector('thead') || tw.closest('.korb')) return;
-    const key = UI.view + ':' + i;
+    const key = UI.view + ':' + i; tw.dataset.twk = key;
     const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
       <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
@@ -63,17 +64,16 @@ function twEnhance(root) {
     twPfeile(box, tw);
     box.querySelector('.twbar').addEventListener('click', e => {
       const a = e.target.closest('[data-tw]')?.dataset.tw; if (!a) return;
-      if (a === 'l' || a === 'r') tw.scrollBy({ left: (a === 'l' ? -1 : 1) * tw.clientWidth * 0.7, behavior: 'smooth' });
+      if (a === 'l' || a === 'r') { tw.scrollLeft += (a === 'l' ? -1 : 1) * Math.max(200, tw.clientWidth * 0.7); TW.pos[key] = [tw.scrollLeft, tw.scrollTop]; twPfeile(box, tw); }
       if (a === 'max') { TW.max = TW.max === key ? null : key; render(); }
     });
     // Mit gedrückter Maus seitlich ziehen (Klick ohne Bewegung öffnet weiter die Zeile)
-    let sx = 0, sl = 0, zieh = false, bewegt = false;
-    tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a')) return; zieh = true; bewegt = false; sx = e.clientX; sl = tw.scrollLeft; });
-    window.addEventListener('mousemove', e => { if (!zieh) return; const dx = e.clientX - sx; if (Math.abs(dx) > 5) { bewegt = true; tw.classList.add('ziehen'); } if (bewegt) { tw.scrollLeft = sl - dx; e.preventDefault(); } });
-    window.addEventListener('mouseup', () => { if (!zieh) return; zieh = false; tw.classList.remove('ziehen'); if (bewegt) setTimeout(() => bewegt = false, 0); });
-    tw.addEventListener('click', e => { if (bewegt) { e.stopPropagation(); e.preventDefault(); } }, true);
+    tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a')) return; TW.drag = { tw, sx: e.clientX, sl: tw.scrollLeft, bewegt: false }; });
+    tw.addEventListener('click', e => { if (TW.nachZiehen) { e.stopPropagation(); e.preventDefault(); } }, true);
   });
 }
+window.addEventListener('mousemove', e => { const d = TW.drag; if (!d) return; const dx = e.clientX - d.sx; if (!d.bewegt && Math.abs(dx) > 6) { d.bewegt = true; d.tw.classList.add('ziehen'); } if (d.bewegt) { d.tw.scrollLeft = d.sl - dx; e.preventDefault(); } });
+window.addEventListener('mouseup', () => { const d = TW.drag; if (!d) return; TW.drag = null; d.tw.classList.remove('ziehen'); if (d.bewegt) { TW.nachZiehen = true; setTimeout(() => TW.nachZiehen = false, 0); } });
 function twPfeile(box, tw) {
   const breit = tw.scrollWidth > tw.clientWidth + 2;
   box.classList.toggle('breit', breit);

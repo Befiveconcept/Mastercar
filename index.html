@@ -120,6 +120,15 @@ button.k:hover{border-color:var(--y)}
 .tb th{text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg2);position:sticky;top:0}
 .tb td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tb tr:last-child td{border-bottom:0}
+.twbar{display:flex;align-items:center;gap:6px;margin:0 0 6px}.twbar .sp{flex:1}.twbar .btn:disabled{opacity:.35;cursor:default}
+.twbox:not(.breit) [data-tw=l],.twbox:not(.breit) [data-tw=r],.twbox:not(.breit) .twhint{display:none}
+.tw.scroll{max-height:calc(100vh - 210px);overflow:auto;overscroll-behavior:contain;scrollbar-width:auto}
+.card .tw.scroll{max-height:60vh}
+.tw.scroll::-webkit-scrollbar{height:14px;width:12px}.tw.scroll::-webkit-scrollbar-thumb{background:var(--y);border-radius:8px;border:3px solid var(--bg2)}.tw.scroll::-webkit-scrollbar-track{background:var(--bg2)}
+.twbox.breit .tw.scroll{cursor:grab}.tw.scroll.ziehen{cursor:grabbing;user-select:none}
+.twbox.max{position:fixed;inset:0;z-index:55;background:var(--bg);padding:12px 16px;display:flex;flex-direction:column}
+.twbox.max .tw.scroll{max-height:none;flex:1}
+body.tw-max-on{overflow:hidden}
 .korb{position:fixed;right:16px;bottom:16px;z-index:60;width:min(420px,calc(100vw - 32px));background:var(--surface);border:2px solid var(--y);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:10px 14px 12px}
 .korb header{display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap}.korb header .sp{flex:1}
 .korb ul{list-style:none;margin:8px 0;padding:0;max-height:38vh;overflow:auto}
