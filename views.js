@@ -204,6 +204,22 @@ function colHead(view, cols, base) {
 const colTxt = (k, l, f) => ({ k, l, v: x => f(x) || '' });
 const colDat = (k, l, f) => ({ k, l, v: x => f(x) || '', t: x => f(x) ? fmtD(f(x)) + ' ' + f(x) : '' });
 const colNum = (k, l, f) => ({ k, l, num: true, v: x => { const v = f(x); return v == null || v === '' ? null : Number(v); }, t: x => { const v = f(x); return v == null || v === '' ? '' : fmtE(v) + ' ' + v; } });
+/* Alle Spalten des Blatts „Ein- und Ausgaben“ in Excel-Reihenfolge (berechnete wie Jahr/KW/tatsächl. werden hergeleitet) */
+const MONATE_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const fixTxt = r => r.fix === true ? 'Fix' : r.fix === false ? 'Variabel' : '';
+const jaNein = v => v === true ? 'Ja' : v === false ? 'Nein' : '';
+function eingangExcel(r) {
+  const d = r.datum || '', m = d ? +d.slice(5, 7) : 0, einn = (r.brutto || 0) < 0, st = rStatus(r);
+  const nach = r.nach_dlp != null ? r.nach_dlp : r2((r.brutto || 0) - (einn ? -1 : 1) * Math.abs(r.durchlaufend || 0));
+  const e = v => v == null || v === '' ? '' : fmtE(Math.abs(v));
+  return [['Jahr', d.slice(0, 4)], ['Quartal', m ? 'Q' + Math.ceil(m / 3) : ''], ['Monat', m ? MONATE_LANG[m - 1] : ''], ['KW', d ? String(isoWeek(d).w) : ''],
+    ['Rechnungsdatum', fmtD(d)], ['Rechnungsein-/ausgang', r.ein_ausgang || 'Rechnungseingang'], ['Einnahme/ Ausgabe', einn ? 'Einnahme' : 'Ausgabe'], ['Variabel / fix', fixTxt(r)],
+    ['Kategorie', r.kostenart || ''], ['Firma', r.partner || ''], ['Art', r.art || ''], ['Rechnungsnr.', r.nummer || ''], ['Zahlart', ZA[r.zahlart] || ''],
+    ['Preis gesamt brutto', e(r.brutto)], ['Erledigt?', st.label], ['Skonto', r.skonto_satz ? String(r2(r.skonto_satz * 100)).replace('.', ',') + ' %' : r.skonto ? fmtE(Math.abs(r.skonto)) : ''],
+    ['Mit Skonto', e(r.mit_skonto != null ? r.mit_skonto : r.skonto ? Math.abs(r.brutto) - Math.abs(r.skonto) : r.brutto)], ['Durchlaufender Posten', e(r.durchlaufend)],
+    ['Nach durchl. Posten', e(nach)], ['Mwst.?', jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)], ['Preis netto', e(r.netto)],
+    ['Einnahme/ Ausgabe tatsächl. brutto', fmtE(-nach)], ['Einnahme/ Ausgabe tatsächl. netto', fmtE(-(r.netto || 0))], ['Bankabgleich', r.bankabgleich || ''], ['Notiz', r.notiz || '']];
+}
 const COL = { nr: colTxt('nr', 'Nr.', x => x.r.nummer), datum: colDat('datum', 'Datum', x => x.r.datum) };
 const colReset = view => colAktiv(view) ? ` <button class="btn sm" data-act="colReset" data-v="${view}">✕ Spaltenfilter zurücksetzen</button>` : '';
 
@@ -219,10 +235,15 @@ function viewRechnungen(dir) {
   list.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '') || String(b.r.nummer || '').localeCompare(String(a.r.nummer || ''), 'de', { numeric: true }));
   const isA = dir === 'ausgang';
   const cols = isA ? [COL.nr, COL.datum, colTxt('kunde', 'Kunde', x => x.r.partner), colTxt('kz', 'Kennz.', x => x.r.kennzeichen)]
-    : [COL.datum, colTxt('lief', 'Lieferant', x => x.r.partner), COL.nr, { k: 'ka', l: 'Kostenart', v: x => x.r.kostenart || '', sel: true }];
-  cols.push(colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)),
-    isA ? { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true } : { k: 'beleg', l: 'Beleg', v: x => x.r.datei ? 'mit Beleg' : 'ohne Beleg', sel: true },
-    { k: 'st', l: 'Status', v: x => x.st.label, sel: true });
+    : [COL.datum, { k: 'kw', l: 'KW', num: true, v: x => x.r.datum ? isoWeek(x.r.datum).w : null, t: x => x.r.datum ? String(isoWeek(x.r.datum).w) : '' }, colTxt('lief', 'Firma', x => x.r.partner),
+      { k: 'ea', l: 'Einn./Ausg.', v: x => (x.r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe', sel: true }, { k: 'fix', l: 'Var./fix', v: x => fixTxt(x.r), sel: true },
+      { k: 'ka', l: 'Kategorie', v: x => x.r.kostenart || '', sel: true }, { k: 'art', l: 'Art', v: x => x.r.art || '', sel: true }, COL.nr, { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }];
+  if (isA) cols.push(colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }, { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true });
+  else cols.push(colNum('brutto', 'Brutto', x => x.r.brutto), colNum('skonto', 'Skonto', x => x.r.skonto ? Math.abs(x.r.skonto) : null), colNum('dlp', 'Durchl. Posten', x => x.r.durchlaufend || null),
+    colNum('netto', 'Netto', x => x.r.netto), { k: 'mw', l: 'MwSt.?', v: x => jaNein(x.r.mwst_pflicht != null ? x.r.mwst_pflicht : Math.abs(x.r.mwst || 0) > 0.005), sel: true },
+    colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true },
+    colTxt('notiz', 'Notiz', x => x.r.notiz));
+  cols.push({ k: 'st', l: 'Status', v: x => x.st.label, sel: true });
   const base = list; list = colApply(view, list, cols);
   const lim = UI.more[view] || 300, tot = sum(list, x => x.r.brutto), offen = sum(list, x => Math.max(0, x.st.offen));
   return `
@@ -236,10 +257,14 @@ function viewRechnungen(dir) {
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)} <span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   <div class="tw"><table class="tb click">${colHead(view, cols, base)}<tbody>
   ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}" class="${r.geprueft ? '' : 'unchecked'}">
-    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.kennzeichen || '')}</td>`
-      : `<td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.kostenart || '–')}</td>`}
-    <td class="num">${fmtE(r.brutto)}</td><td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td>
-    <td>${isA ? esc(ZA[r.zahlart] || '') : (r.datei ? '📄' : '')}</td><td class="st-td">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="9" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
+    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.kennzeichen || '')}</td>
+      <td class="num">${fmtE(r.brutto)}</td><td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${esc(ZA[r.zahlart] || '')}</td><td>${r.datei ? '📄' : ''}</td>`
+      : `<td>${fmtD(r.datum)}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${esc(r.partner || '')}</td><td>${(r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe'}</td><td>${fixTxt(r)}</td>
+      <td>${esc(r.kostenart || '–')}${r.unterkonto ? `<br><small class="muted">${esc(r.unterkonto)}</small>` : ''}</td><td>${esc(r.art || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
+      <td class="num">${fmtE(r.brutto)}</td><td class="num">${r.skonto ? fmtE(Math.abs(r.skonto)) : ''}</td><td class="num">${r.durchlaufend ? fmtE(r.durchlaufend) : ''}</td><td class="num">${r.netto != null ? fmtE(r.netto) : ''}</td>
+      <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
+      <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
+    <td class="st-td">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 

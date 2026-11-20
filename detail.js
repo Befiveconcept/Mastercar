@@ -31,6 +31,7 @@ async function rechnungDetail(id) {
           <dt>Bezahlt</dt><dd>${fmtE(st.bezahlt)}</dd>
           <dt>${st.offen < -0.01 ? 'Zu viel bezahlt' : 'Offen'}</dt><dd class="${Math.abs(st.offen) > 0.01 ? 'neg' : ''}"><b>${fmtE(Math.abs(st.offen))}</b></dd>
         </dl>
+        ${isA ? '' : `<details class="xl"><summary>Alle Spalten wie in der Excel „Ein- und Ausgaben“</summary><dl class="dl">${eingangExcel(r).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || '–')}</dd>`).join('')}</dl></details>`}
         <h4>Zahlungen</h4>
         ${st.zahlungen.length ? `<ul class="pays">${st.zahlungen.map(z => `<li><span>${payLabel(z)}${z.art === 'auto' ? ' <small class="muted">· automatisch' + (z.notiz ? ': ' + esc(z.notiz) : '') + '</small>' : z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Zuordnung lösen">✕</button></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
         <div class="btnrow">
@@ -38,6 +39,7 @@ async function rechnungDetail(id) {
           ${isA ? '<button class="btn" data-a="bar">Bar bezahlt</button>' : ''}
           <button class="btn" data-a="erl">${r.erledigt ? 'Wieder öffnen' : 'Als erledigt markieren'}</button>
           <button class="btn" data-a="edit">Bearbeiten</button>
+          <button class="btn ${r.datei ? '' : 'primary'}" data-a="beleg" title="PDF auswählen oder einfach in dieses Fenster ziehen">📎 ${r.datei ? 'PDF ersetzen' : 'PDF anhängen'}</button>
           <button class="btn" data-a="todo">☑ To-Do anlegen</button>
           ${r.geprueft ? '' : '<button class="btn" data-a="ok">✓ Geprüft</button>'}
           <button class="btn danger" data-a="del">Löschen</button>
@@ -46,6 +48,8 @@ async function rechnungDetail(id) {
       ${r.datei ? `<div class="doc" id="docPrev"><div class="muted small">Beleg wird geladen …</div></div>` : ''}
     </div>`
   });
+  d.dataset.rid = r.id;   // PDF ins offene Fenster ziehen = an diese Rechnung hängen
+  if (!r.datei) $('.sheet-body', d).insertAdjacentHTML('afterbegin', '<div class="note small">Zu dieser Rechnung ist noch keine PDF hinterlegt – einfach die PDF in dieses Fenster ziehen oder „📎 PDF anhängen“.</div>');
   if (r.datei) DB.fileUrl(r.datei).then(u => { const p = $('#docPrev', d); if (!p) return; p.innerHTML = !u ? 'Beleg nicht gefunden.' : /\.(png|jpe?g|webp|gif)$/i.test(r.datei) ? `<img src="${u}" alt="Beleg">` : `<iframe src="${u}" title="Beleg"></iframe><a class="small" href="${u}" target="_blank" rel="noopener">In neuem Fenster öffnen</a>`;
     p.insertAdjacentHTML('beforeend', ` <a class="small" href="#" id="docDl">⬇ ${esc(r.dateiname || 'Herunterladen')}</a>`);
     $('#docDl', d).onclick = async e => { e.preventDefault(); try { const b = await ablageBlob(r); if (!b) return toast('Beleg nicht gefunden.'); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = r.dateiname || belegName(r, dateiEndung(r.datei)); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); } catch (er) { toast('Download fehlgeschlagen.'); } };
@@ -59,6 +63,7 @@ async function rechnungDetail(id) {
     if (a === 'erl') { await DB.update('rechnungen', r.id, { erledigt: !r.erledigt }); return again(); }
     if (a === 'ok') { await DB.update('rechnungen', r.id, { geprueft: true }); return again(); }
     if (a === 'edit') return rechnungForm(r.richtung, r);
+    if (a === 'beleg') { const i = document.createElement('input'); i.type = 'file'; i.accept = '.pdf,image/*,.eml,.msg'; i.onchange = () => i.files[0] && belegZuRechnung(r.id, i.files[0]); i.click(); return; }
     if (a === 'todo') { const o = rStatus(r).offen; return todoForm(null, { rechnung_id: r.id, prio: st.key === 'ueberfaellig' || st.key === 'doppelt' ? 'hoch' : 'normal', faellig: addDays(todayISO(), 2),
       titel: isA ? (st.key === 'ueber' || st.key === 'doppelt' ? `${r.partner}: zu viel gezahlte ${fmtE(-o)} erstatten (${r.nummer || ''})` : `${r.partner} wegen offener Rechnung ${r.nummer || ''} (${fmtE(o)}) kontaktieren`) : `Rechnung ${r.nummer || ''} von ${r.partner} klären`, extern: r.partner }); }
     if (a === 'del') { if (!confirm('Rechnung ' + (r.nummer || '') + ' wirklich löschen? Zugeordnete Zahlungen werden wieder frei.')) return; await DB.remove('rechnungen', r.id); closeSheet(); buildIdx(); render(); toast('Gelöscht.'); }
@@ -79,9 +84,12 @@ function rechnungForm(dir, r = null) {
          <label class="fld"><span>Art</span><select class="inp" name="art">${['Rechnung', 'Gutschrift', 'Korrektur', 'Vertrag', 'Beleg', 'Storno'].map(k => `<option ${(v.art || 'Rechnung') === k ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
          <label class="fld"><span>Fix / variabel</span><select class="inp" name="fix"><option value="">–</option><option value="1" ${v.fix === true ? 'selected' : ''}>Fixkosten</option><option value="0" ${v.fix === false ? 'selected' : ''}>variabel</option></select></label>
          <label class="fld"><span>Zahlart</span><select class="inp" name="zahlart"><option value="">–</option>${Object.entries(ZA).map(([k, l]) => `<option value="${k}" ${v.zahlart === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-         ${f('skonto', 'Skonto (€)', 'number')}` + f('iban', 'IBAN Lieferant')}
+         ${f('skonto', 'Skonto (€)', 'number')}${f('durchlaufend', 'Durchlaufender Posten (€)', 'number')}
+         <label class="fld"><span>Mwst.?</span><select class="inp" name="mwst_pflicht"><option value="">–</option><option value="1" ${v.mwst_pflicht === true ? 'selected' : ''}>Ja</option><option value="0" ${v.mwst_pflicht === false ? 'selected' : ''}>Nein</option></select></label>
+         ${f('bankabgleich', 'Bankabgleich')}` + f('iban', 'IBAN Lieferant')}
     <label class="fld full"><span>Beschreibung</span><input class="inp" name="beschreibung" value="${esc(v.beschreibung || '')}"></label>
-    <label class="fld full"><span>Notiz</span><input class="inp" name="notiz" value="${esc(v.notiz || '')}"></label></form>
+    <label class="fld full"><span>Notiz</span><input class="inp" name="notiz" value="${esc(v.notiz || '')}"></label>
+    <label class="fld full"><span>📎 PDF der Rechnung ${v.datei ? '(ersetzt die vorhandene)' : ''}</span><input class="inp" name="beleg" type="file" accept=".pdf,image/*,.eml,.msg"></label></form>
     <p class="small muted">Tipp: Netto + MwSt. eintragen und Brutto leer lassen – wird ausgerechnet.</p>`,
     onOk: async dd => {
       const fd = Object.fromEntries(new FormData($('form', dd)));
@@ -93,6 +101,7 @@ function rechnungForm(dir, r = null) {
         beschreibung: fd.beschreibung || null, notiz: fd.notiz || null, geprueft: true };
       if (isA) Object.assign(row, { kennzeichen: (fd.kennzeichen || '').toUpperCase() || null, zahlart: fd.zahlart || null });
       else Object.assign(row, { kostenart: fd.kostenart || null, unterkonto: fd.unterkonto || null, art: fd.art || null, fix: fd.fix === '' ? null : fd.fix === '1', zahlart: fd.zahlart || null, skonto: n('skonto'),
+        durchlaufend: n('durchlaufend'), mwst_pflicht: fd.mwst_pflicht === '' ? null : fd.mwst_pflicht === '1', bankabgleich: (fd.bankabgleich || '').trim() || null, nach_dlp: null, mit_skonto: null,   // werden aus Brutto/Skonto/durchl. Posten neu hergeleitet
         iban: (fd.iban || '').replace(/\s/g, '').toUpperCase() || null });
       // Gutschrift/Storno vom Lieferanten mindert Kosten: negativ speichern
       if (!isA && ['Gutschrift', 'Storno'].includes(fd.art) && row.brutto > 0) { row.brutto = -row.brutto; if (row.netto) row.netto = -Math.abs(row.netto); if (row.mwst) row.mwst = -Math.abs(row.mwst); }
@@ -109,8 +118,12 @@ function rechnungForm(dir, r = null) {
         if (S.rechnungen.some(x => x.schluessel === row.schluessel)) { toast('Diese Rechnungsnummer gibt es schon.'); return false; }
         const [nr] = await DB.insert('rechnungen', [row]);
         if (isA && row.zahlart === 'bar' && nr) await zuordnen(nr, null, 'bar', nr.brutto, 'Bar bezahlt');
+        if (nr && fd.beleg && fd.beleg.size) setTimeout(() => belegZuRechnung(nr.id, fd.beleg), 0);
+        else if (nr) toast('Gespeichert – PDF fehlt noch (im Rechnungsfenster „📎 PDF anhängen“).');
       }
-      buildIdx(); render(); if (r) setTimeout(() => rechnungDetail(r.id), 0);
+      buildIdx(); render();
+      if (r && fd.beleg && fd.beleg.size) setTimeout(() => belegZuRechnung(r.id, fd.beleg), 0);
+      else if (r) setTimeout(() => rechnungDetail(r.id), 0);
     }
   });
   // Brutto automatisch aus Netto + MwSt.

@@ -31,7 +31,8 @@ function parseEingang(rows) {
   const h = rows[hi], c = {
     datum: colIdx(h, 'Rechnungsdatum'), ea: colIdx(h, 'Einnahme/ Ausgabe', 'Einnahme/Ausgabe'), fix: colIdx(h, 'Variabel / fix'), kat: colIdx(h, 'Kategorie'), firma: colIdx(h, 'Firma'),
     art: colIdx(h, 'Art'), nr: colIdx(h, 'Rechnungsnr.'), za: colIdx(h, 'Zahlart'), brutto: colIdx(h, 'Preis gesamt brutto'), status: colIdx(h, 'Erledigt?'), skonto: colIdx(h, 'Skonto'),
-    mitSkonto: colIdx(h, 'Mit Skonto'), dlp: colIdx(h, 'Durchlaufender Posten'), netto: colIdx(h, 'Preis netto'), notiz: colIdx(h, 'Notiz'), unter: colIdx(h, 'Unterkategorie', 'Konto')
+    mitSkonto: colIdx(h, 'Mit Skonto'), dlp: colIdx(h, 'Durchlaufender Posten'), netto: colIdx(h, 'Preis netto'), notiz: colIdx(h, 'Notiz'), unter: colIdx(h, 'Unterkategorie', 'Konto'),
+    einaus: colIdx(h, 'Rechnungsein-/ausgang', 'Rechnungsein-/ ausgang'), nachDlp: colIdx(h, 'Nach durchl. Posten', 'Nach durchl. Posten'), mw: colIdx(h, 'Mwst.?', 'MwSt.?', 'Mwst?'), bank: colIdx(h, 'Bankabgleich')
   };
   const out = [], seen = {};
   rows.slice(hi + 1).forEach(r => {
@@ -40,7 +41,11 @@ function parseEingang(rows) {
     const einnahme = /einnahme/i.test(txt(r, c.ea)), sign = einnahme ? -1 : 1;
     let netto = parseNum(cell(r, c.netto)); if (netto == null) netto = b;
     const mit = parseNum(cell(r, c.mitSkonto)), sk = parseNum(cell(r, c.skonto));
+    // Skonto-Betrag: Differenz Brutto → „Mit Skonto“; sonst aus dem Satz
     const skonto = mit != null && mit < Math.abs(b) - 0.005 ? r2(Math.abs(b) - mit) : (sk != null && sk > 0 && sk < Math.abs(b) ? r2(sk < 1 ? Math.abs(b) * sk : sk) : null);
+    const dlp = parseNum(cell(r, c.dlp)), nach = parseNum(cell(r, c.nachDlp)), mwTxt = txt(r, c.mw);
+    // MwSt. = Betrag ohne durchlaufende Posten minus Netto (TÜV-Gebühr u. Ä. enthalten keine MwSt.)
+    const basis = nach != null ? Math.abs(nach) : Math.max(0, Math.abs(b) - Math.abs(dlp || 0));
     const st = txt(r, c.status), nummer = txt(r, c.nr), art = txt(r, c.art) || null;
     const kat = txt(r, c.kat), katOk = KOSTENARTEN.find(k => norm(k) === norm(kat)) || (kat || null);
     const base = nummer ? 'E:' + (nameTokens(firma)[0] || norm(firma).slice(0, 12)) + ':' + normNr(nummer) + ':' + (sign < 0 ? 'G' : 'R') : null;
@@ -49,7 +54,10 @@ function parseEingang(rows) {
     out.push({
       richtung: 'eingang', datum, partner: firma, nummer: nummer || null, art, fix: /fix/i.test(txt(r, c.fix)) ? true : /variab/i.test(txt(r, c.fix)) ? false : null,
       kostenart: katOk, unterkonto: txt(r, c.unter) || unterkontoVorschlag(katOk, firma), zahlart: ZA_MAP(txt(r, c.za)), brutto: r2(sign * Math.abs(b)), netto: r2(sign * Math.abs(netto)),
-      mwst: r2(sign * (Math.abs(b) - Math.abs(netto))), skonto: skonto ? r2(sign * skonto) : null, durchlaufend: parseNum(cell(r, c.dlp)),
+      mwst: r2(sign * Math.max(0, basis - Math.abs(netto))), skonto: skonto ? r2(sign * skonto) : null, durchlaufend: dlp ? r2(dlp) : null,
+      ein_ausgang: txt(r, c.einaus) || null, mwst_pflicht: /^ja/i.test(mwTxt) ? true : /^nein/i.test(mwTxt) ? false : null,
+      skonto_satz: sk != null && sk > 0 && sk < 1 ? sk : null, mit_skonto: mit != null ? r2(sign * Math.abs(mit)) : null,
+      nach_dlp: nach != null ? r2(sign * Math.abs(nach)) : null, bankabgleich: txt(r, c.bank) || null,
       status_excel: stNorm(st, 'eingang'), bezahlt_extern: istBezahltLaut(st),
       notiz: txt(r, c.notiz) || null, quelle: 'excel', geprueft: true, schluessel: seen[k0] > 1 ? k0 + '#' + seen[k0] : k0
     });
@@ -145,7 +153,7 @@ function mappeBlaetter(t) {
 }
 // Rechnungen, die es schon gibt: geänderte Felder übernehmen (z. B. Status „Offen“ → „Bezahlt“ im Werkstatt Journal)
 const UPD_FELDER = { ausgang: ['partner', 'kundennr', 'kennzeichen', 'datum', 'brutto', 'netto', 'mwst', 'lohn', 'teile', 'sonstiges', 'altteile', 'durchlaufend', 'zahlart', 'geprueft', 'notiz', 'erledigt', 'art'],
-  eingang: ['partner', 'datum', 'brutto', 'netto', 'mwst', 'skonto', 'durchlaufend', 'zahlart', 'art', 'fix', 'notiz'] };
+  eingang: ['partner', 'datum', 'brutto', 'netto', 'mwst', 'skonto', 'durchlaufend', 'zahlart', 'art', 'fix', 'notiz', 'ein_ausgang', 'mwst_pflicht', 'skonto_satz', 'mit_skonto', 'nach_dlp', 'bankabgleich'] };
 const leer = v => v == null || v === '';
 const gleich = (a, b) => (leer(a) && leer(b)) || (typeof a === 'number' || typeof b === 'number' ? !leer(a) && !leer(b) && eq(+a, +b) : String(a) === String(b));
 function aenderungen(rows, dir) {
