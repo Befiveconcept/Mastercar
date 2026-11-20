@@ -148,6 +148,31 @@ button.k:hover{border-color:var(--y)}
 .tb th{text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg2);position:sticky;top:0}
 .tb td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tb tr:last-child td{border-bottom:0}
+/* Problemseite: aufklappbare Rubriken in voller Breite */
+.abg-list{display:flex;flex-direction:column;gap:10px}
+.abg{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:12px}
+.abg.ton-bad{border-left-color:var(--bad)}.abg.ton-warn{border-left-color:var(--warn)}.abg.ton-ok{border-left-color:var(--ok)}.abg.ton-leer{opacity:.6}
+.abg summary{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;list-style:none;user-select:none;flex-wrap:wrap}
+.abg summary::-webkit-details-marker{display:none}
+.abg summary:hover{background:var(--surface2);border-radius:12px}
+.abg-t{font-family:var(--f-h);font-size:18px;text-transform:uppercase;letter-spacing:.02em}
+.abg .cnt{font-size:13px;padding:3px 10px}.abg.ton-bad .cnt{background:var(--bad);color:#fff}.abg.ton-warn .cnt{background:rgba(245,165,36,.25);color:var(--warn)}
+.abg-s{font-weight:700;font-variant-numeric:tabular-nums}.abg-z{color:var(--muted);font-size:13px}
+.abg-c{transition:transform .2s;font-size:18px;color:var(--muted)}.abg[open] .abg-c{transform:rotate(180deg)}
+.abg-b{padding:0 16px 16px}.abg-b>p{margin:0 0 10px}
+.abg .tw.scroll{max-height:calc(100vh - 160px)}
+.tb td.mono{white-space:nowrap}
+/* Bezahlen */
+.pz{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:12px;background:var(--surface);padding:12px 14px;margin:10px 0;transition:opacity .3s}
+.pz.spaet{border-left-color:var(--bad)}.pz.fertig{opacity:0}
+.pz header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.pz header .sp{flex:1}
+.pz-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.pz-f{display:flex;flex-direction:column;gap:3px}.pz-f>span{font-size:12px;color:var(--muted)}
+.pz-c{display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;border:1px solid var(--line);background:var(--bg2);color:var(--ink);border-radius:8px;padding:8px 10px;min-height:40px;overflow-wrap:anywhere;font-size:14px}
+.pz-c b{color:var(--muted);font-weight:400}.pz-c:hover{border-color:var(--y)}.pz-c:hover b{color:var(--y-t)}.pz-c:active{background:var(--y-soft)}
+.pz-c.mono{font-family:var(--f-m);font-size:14px;letter-spacing:.02em}
+.pz .btnrow{margin-top:10px;align-items:center}.pz .btnrow .sp{flex:1}
+.pz-qr{margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.pz-qrc{background:#fff;padding:10px;border-radius:10px;line-height:0}
 .twbar{display:flex;align-items:center;gap:6px;margin:0 0 6px}.twbar .sp{flex:1}.twbar .btn:disabled{opacity:.35;cursor:default}
 .twbox:not(.breit) [data-tw=l],.twbox:not(.breit) [data-tw=r],.twbox:not(.breit) .twhint{display:none}
 .tw.scroll{max-height:calc(100vh - 210px);overflow:auto;overscroll-behavior:contain;scrollbar-width:auto}
@@ -324,6 +349,7 @@ details.xl{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding
 <script src="js/abgleich.js"></script>
 <script src="js/ablage.js"></script>
 <script src="js/avis.js"></script>
+<script src="js/zahlen.js"></script>
 <script src="js/eingang.js"></script>
 <script src="js/views.js"></script>
 <script src="js/detail.js"></script>

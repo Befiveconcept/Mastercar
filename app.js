@@ -140,6 +140,7 @@ Object.assign(A, {
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
+  abgAlle: d => { UI.abgOpen = {}; if (d.v === '1') $$('details.abg').forEach(x => UI.abgOpen[x.dataset.abg] = true); render(); },
   neuAbgleich: async () => {
     const auto = S.zuordnungen.filter(z => z.art === 'auto');
     if (!confirm(`${auto.length} automatische Zuordnungen verwerfen und mit den aktuellen Regeln neu berechnen?\nVon Hand zugeordnete Zahlungen bleiben unverändert.`)) return;
@@ -213,6 +214,12 @@ document.addEventListener('change', e => {
 let qT; document.addEventListener('input', e => { const v = e.target.dataset && e.target.dataset.q; if (!v) return; UI.q[v] = e.target.value; UI.more[v.split('|')[0]] = 0; clearTimeout(qT); qT = setTimeout(render, 200); });
 
 // Dateien irgendwo ins Fenster ziehen
+// Problemseite: Rubrik auf-/zuklappen merken; Inhalt wird erst beim Aufklappen gezeichnet
+document.addEventListener('toggle', e => {
+  const d = e.target; if (!d.matches || !d.matches('details.abg')) return;
+  UI.abgOpen = UI.abgOpen || {}; UI.abgOpen[d.dataset.abg] = d.open;
+  if (d.open && !d.querySelector('.tw, .empty')) { const y = window.scrollY; render(); window.scrollTo(0, y); }
+}, true);
 // Hinweis „Loslassen zum Übernehmen“: an, solange eine Datei über dem Fenster schwebt; verschwindet von selbst
 // (beim Loslassen – auch auf der Suchleiste –, beim Abbrechen oder spätestens 300 ms nach der letzten Bewegung)
 let veilT;
