@@ -39,7 +39,8 @@ function kennzahlen(range) {
   const ueberA = allA.filter(x => x.st.key === 'ueberfaellig');
   const offenE = allE.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key));
   const probleme = [...allA, ...allE].filter(x => ['ueber', 'doppelt', 'teil'].includes(x.st.key));
-  const bankOffen = S.bank.filter(b => b.betrag > 0 && bStatus(b).key === 'offen');
+  const stand = ausgangStand();
+  const bankOffen = S.bank.filter(b => b.betrag > 0 && bStatus(b).key === 'offen' && !wartetAufRechnung((b.zweck || '') + ' ' + (b.gegenpartei || ''), b.datum, stand));
   const pruefen = S.rechnungen.filter(r => !r.geprueft);
   // Kostenarten
   const ka = {}; ein.forEach(r => { const k = r.kostenart || 'Ohne Kategorie'; ka[k] = (ka[k] || 0) + nettoE(r); });
@@ -337,39 +338,74 @@ function viewSumup() {
   </tbody></table></div>${moreBtn('sumup', list.length, lim)}`;
 }
 
+/* Zahlung gehört (wahrscheinlich) zu einer Ausgangsrechnung, die noch gar nicht importiert ist:
+   – Nummer im Text liegt hinter der höchsten vorhandenen Rechnungsnummer des Jahres (z. B. „r26/1745“, letzte ist R26-1741), oder
+   – ohne Nummer und nach dem Datum der letzten vorhandenen Ausgangsrechnung. */
+function ausgangStand() {
+  const max = {}; let letzt = '';
+  S.rechnungen.forEach(r => { if (r.richtung !== 'ausgang') return; const m = String(r.nummer || '').match(/R\s?(\d{2})\s?[-\/]\s?(\d{3,5})/i); if (m) max[m[1]] = Math.max(max[m[1]] || 0, +m[2]); if (r.datum && r.datum > letzt) letzt = r.datum; });
+  return { max, letzt };
+}
+function wartetAufRechnung(text, datum, stand) {
+  const nrs = [...String(text || '').matchAll(/r\s?(\d{2})\s?[-\/ ]\s?(\d{3,5})/gi)];
+  if (nrs.length) return nrs.some(m => stand.max[m[1]] && +m[2] > stand.max[m[1]]);
+  return !!(datum && stand.letzt && datum > stand.letzt);
+}
+
 /* ---------- Abgleich & Probleme ---------- */
 function viewAbgleich() {
   const all = S.rechnungen.map(r => ({ r, st: rStatus(r) }));
   const grp = k => all.filter(x => x.st.key === k);
   const rCols = dirCol => [...(dirCol ? [{ k: 'dir', l: '', v: x => x.r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang', sel: true }] : []), COL.nr, COL.datum, colTxt('partner', 'Partner', x => x.r.partner),
-    colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('diff', 'Differenz', x => r2(-x.st.offen))];
+    colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('diff', 'Differenz', x => r2(-x.st.offen)),
+    { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }, { k: 'st', l: 'Status', v: x => x.st.label, sel: true },
+    colTxt('zahl', 'Zahlungen', x => x.st.zahlungen.map(payLabel).join(' ')), colTxt('notiz', 'Notiz', x => x.r.notiz)];
   const rows = (l0, dirCol = true, key = 'abg') => { if (!l0.length) return '<div class="empty small">Nichts – alles gut.</div>'; const cols = rCols(dirCol), l = colApply(key, l0, cols);
     return `<div class="tw"><table class="tb click">${colHead(key, cols, l0)}<tbody>
-    ${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}">${dirCol ? `<td>${r.richtung === 'ausgang' ? '↗' : '↘'}</td>` : ''}<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${fmtE(st.bezahlt)}</td><td class="num neg">${fmtE(-st.offen)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>`; };
-  const bankOffen = S.bank.filter(b => b.betrag > 0 && ['offen', 'teilweise'].includes(bStatus(b).key)).sort((a, b) => b.datum.localeCompare(a.datum));
+    ${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}">${dirCol ? `<td>${r.richtung === 'ausgang' ? '↗' : '↘'}</td>` : ''}<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${fmtE(st.bezahlt)}</td><td class="num neg">${fmtE(-st.offen)}</td>
+      <td>${esc(ZA[r.zahlart] || '')}</td><td>${badge(st)}</td><td class="small">${st.zahlungen.map(z => payLabel(z) + ' · ' + fmtE(z.betrag)).join('<br>')}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty small">Nichts für diesen Filter.</td></tr>`}</tbody></table></div>`; };
+  const stand = ausgangStand();
+  const bankAlle = S.bank.filter(b => b.betrag > 0 && ['offen', 'teilweise'].includes(bStatus(b).key)).sort((a, b) => b.datum.localeCompare(a.datum));
+  const bankOffen = bankAlle.filter(b => !wartetAufRechnung((b.zweck || '') + ' ' + (b.gegenpartei || ''), b.datum, stand));
   const bankAusOffen = S.bank.filter(b => b.betrag < 0 && bStatus(b).key === 'offen').sort((a, b) => b.datum.localeCompare(a.datum));
-  const sumOffen = S.sumup.filter(s => sStatus(s).key === 'offen').sort((a, b) => b.datum.localeCompare(a.datum));
+  const sumAlle = S.sumup.filter(s => sStatus(s).key === 'offen').sort((a, b) => b.datum.localeCompare(a.datum));
+  const sumOffen = sumAlle.filter(s => !wartetAufRechnung(s.beschreibung, s.datum, stand));
+  const warten = bankAlle.length - bankOffen.length + sumAlle.length - sumOffen.length;
+  const nextNr = Object.entries(stand.max).sort().slice(-1).map(([y, n]) => `R${y}-${String(n + 1).padStart(4, '0')}`)[0];
   const ueberf = grp('ueberfaellig').filter(x => x.r.richtung === 'ausgang').sort((a, b) => (a.r.datum || '').localeCompare(b.r.datum || ''));
   const blCols = [colDat('datum', 'Datum', b => b.datum), colTxt('name', 'Name', b => b.gegenpartei), colTxt('zweck', 'Verwendungszweck', b => b.zweck), colNum('betrag', 'Betrag', b => b.betrag)];
   const bl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, blCols);
-    return `<div class="tw"><table class="tb click">${colHead(key, blCols, l0)}<tbody>${l.slice(0, 50).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 50 ? `<p class="small muted">+ ${l.length - 50} weitere unter „Bank“.</p>` : ''}`; };
+    return `<div class="tw"><table class="tb click">${colHead(key, blCols, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „Bank“.</p>` : ''}`; };
   const suCols = [colDat('datum', 'Datum', s => s.datum), colTxt('beschr', 'Beschreibung', s => s.beschreibung), colNum('betrag', 'Betrag', s => s.betrag)];
   const sl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, suCols);
-    return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 50).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 50 ? `<p class="small muted">+ ${l.length - 50} weitere unter „SumUp“.</p>` : ''}`; };
+    return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 300).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „SumUp“.</p>` : ''}`; };
+  const ek = all.filter(x => x.st.erklaert), ohneBeleg = bankAusOffen.filter(b => !b.kostenart);
+  const ekCols = [COL.nr, colTxt('partner', 'Partner', x => x.r.partner), COL.datum, colNum('brutto', 'Brutto', x => x.r.brutto), colTxt('grund', 'Begründung', x => x.st.hint[0]), colTxt('notiz', 'Notiz', x => x.r.notiz)];
+  const ekTab = () => { const l = colApply('abgE', ek, ekCols); return `<div class="tw"><table class="tb click">${colHead('abgE', ekCols, ek)}<tbody>${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(st.hint[0])}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('')}</tbody></table></div>`; };
+  // Rubriken: Titel, Anzahl, Summe, Inhalt – aufklappbar, volle Breite
+  const R = [
+    { k: 'doppelt', t: '⚠ Doppelt bezahlt', ton: 'bad', l: grp('doppelt'), s: x => -x.st.offen, html: () => rows(grp('doppelt'), true, 'abgD'), info: 'Dieselbe Rechnung wurde zweimal bezahlt – Rückzahlung prüfen.' },
+    { k: 'ueber', t: 'Zu viel bezahlt', ton: 'warn', l: grp('ueber'), s: x => -x.st.offen, html: () => rows(grp('ueber'), true, 'abgU') },
+    { k: 'teil', t: 'Zu wenig bezahlt', ton: 'warn', l: grp('teil'), s: x => x.st.offen, html: () => rows(grp('teil'), true, 'abgT') },
+    { k: 'ueberf', t: 'Überfällige Kundenrechnungen', ton: 'bad', l: ueberf, s: x => x.st.offen, html: () => rows(ueberf, false, 'abgF'), info: 'Zahlungsziel überschritten, noch keine Zahlung gefunden.' },
+    { k: 'bank', t: 'Zahlungseingänge ohne Rechnung', ton: 'warn', l: bankOffen, s: b => b.betrag, html: () => bl(bankOffen, 'abgB') },
+    { k: 'sumup', t: 'EC-Zahlungen (SumUp) ohne Rechnung', ton: 'warn', l: sumOffen, s: s => s.betrag, html: () => sl(sumOffen, 'abgS'),
+      info: warten ? `Nicht aufgeführt: ${warten} Zahlung${warten === 1 ? '' : 'en'} zu Rechnungen, die noch nicht importiert sind${nextNr ? ` (ab ${nextNr} bzw. nach dem ${fmtD(stand.letzt)})` : ''} – sie werden zugeordnet, sobald das nächste Werkstatt Journal kommt.` : '' },
+    { k: 'kosten', t: 'Bankabgänge ohne Beleg und ohne Kostenart', ton: 'warn', l: ohneBeleg, s: b => -b.betrag, html: () => bl(ohneBeleg, 'abgK') },
+    { k: 'erkl', t: '✓ Abweichung erklärt', ton: 'ok', l: ek, s: () => 0, html: ekTab, info: 'Cent-Differenzen, Rückzahlung laut Notiz oder laut Liste bezahlt – kein Handlungsbedarf.' }
+  ];
+  UI.abgOpen = UI.abgOpen || (() => { const f = R.find(x => x.l.length && x.ton !== 'ok'); return f ? { [f.k]: true } : {}; })();
+  const offenProbleme = R.filter(x => x.ton !== 'ok').reduce((s, x) => s + x.l.length, 0);
   return `
   <div class="toolbar"><h1>Abgleich & Probleme</h1><span class="sp"></span><button class="btn primary" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="neuAbgleich" title="Alle automatischen Zuordnungen verwerfen und mit den aktuellen Regeln neu berechnen – eigene (von Hand) bleiben">↻ Neu berechnen</button></div>
-  <p class="muted">Der Abgleich ordnet Zahlungen über Rechnungsnummer im Verwendungszweck, Name/IBAN und Betrag zu. Unklare Fälle bleiben hier stehen – anklicken und von Hand zuordnen.</p>
-  <div class="grid2">
-    <section class="card"><h3>⚠ Doppelt bezahlt <span class="cnt">${grp('doppelt').length}</span></h3>${rows(grp('doppelt'), true, 'abgD')}</section>
-    <section class="card"><h3>Zu viel bezahlt <span class="cnt">${grp('ueber').length}</span></h3>${rows(grp('ueber'), true, 'abgU')}</section>
-    <section class="card"><h3>Zu wenig bezahlt <span class="cnt">${grp('teil').length}</span></h3>${rows(grp('teil'), true, 'abgT')}</section>
-    <section class="card"><h3>Überfällige Kundenrechnungen <span class="cnt">${ueberf.length}</span></h3>${rows(ueberf, false, 'abgF')}</section>
-    ${(() => { const ek = all.filter(x => x.st.erklaert); return ek.length ? `<section class="card"><h3>✓ Abweichung erklärt <span class="cnt">${ek.length}</span></h3><p class="small muted">Cent-Differenzen, Rückzahlung laut Notiz oder laut Liste bezahlt – kein Handlungsbedarf.</p>
-      <div class="tw"><table class="tb click"><tbody>${ek.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(st.hint[0])}</td></tr>`).join('')}</tbody></table></div></section>` : ''; })()}
-    <section class="card"><h3>Zahlungseingänge ohne Rechnung <span class="cnt">${bankOffen.length}</span></h3>${bl(bankOffen, 'abgB')}</section>
-    <section class="card"><h3>EC-Zahlungen (SumUp) ohne Rechnung <span class="cnt">${sumOffen.length}</span></h3>${sl(sumOffen, 'abgS')}</section>
-    <section class="card"><h3>Bankabgänge ohne Beleg und ohne Kostenart <span class="cnt">${bankAusOffen.filter(b => !b.kostenart).length}</span></h3>${bl(bankAusOffen.filter(b => !b.kostenart), 'abgK')}</section>
-  </div>`;
+  <p class="muted small">Rubrik antippen zum Auf- und Zuklappen. Unklare Fälle anklicken und von Hand zuordnen. ${offenProbleme ? `<b>${offenProbleme}</b> Einträge brauchen einen Blick.` : '✓ Nichts offen.'}
+    <button class="lnk" data-act="abgAlle" data-v="1">alle aufklappen</button> · <button class="lnk" data-act="abgAlle" data-v="0">alle zuklappen</button></p>
+  <div class="abg-list">${[...R.filter(x => x.l.length && x.ton !== 'ok'), ...R.filter(x => x.l.length && x.ton === 'ok'), ...R.filter(x => !x.l.length)].map(x => {   // Rubriken mit Einträgen oben, leere unten
+    const n = x.l.length, su = sum(x.l, x.s), auf = !!UI.abgOpen[x.k];
+    return `<details class="abg ton-${n ? x.ton : 'leer'}" data-abg="${x.k}" ${auf ? 'open' : ''}>
+      <summary><span class="abg-t">${x.t}</span><span class="cnt">${n}</span>${n && su ? `<span class="abg-s">${fmtE(su)}</span>` : ''}<span class="sp"></span><span class="abg-z">${n ? '' : 'alles gut'}</span><span class="abg-c" aria-hidden="true">▾</span></summary>
+      <div class="abg-b">${x.info ? `<p class="small muted">${x.info}</p>` : ''}${auf ? (n ? x.html() : '<div class="empty small">Nichts – alles gut.</div>') : ''}</div>
+    </details>`; }).join('')}</div>`;
 }
 
 /* ---------- Einstellungen ---------- */
