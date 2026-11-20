@@ -38,24 +38,38 @@ function rStatus(r) {
   const gs = (IDX.gsByR && IDX.gsByR.get(r.id) || []).filter(g => (+g.brutto || 0) < 0), gut = sum(gs, g => Math.abs(sollOf(g)));
   const zs = IDX.zByR.get(r.id) || [], paid = r2(sum(zs, z => z.betrag) + gut), brutto = sollOf(r), diff = r2(brutto - paid), hatZ = zs.length || gs.length;
   const stx = r.status_excel || '', laut = istBezahltLaut(stx) || (!stx && r.bezahlt_extern);
-  let key;
+  let key, erkl = null;   // erkl = Abweichung ist erklärt (Cent-Differenz, Notiz, Liste) → kein Problem
   if (r.erledigt || istStornoLaut(stx)) key = isStorno(r) || istStornoLaut(stx) ? 'storno' : 'erledigt';
   else if (!hatZ && laut) key = 'extern';   // laut Liste bezahlt, Zahlung (noch) nicht gefunden
   else if (!hatZ) { const f = faelligAm(r); key = f && f < todayISO() ? 'ueberfaellig' : 'offen'; }
   else if (!zs.length && diff > 0.01) { const f = faelligAm(r); key = f && f < todayISO() ? 'ueberfaellig' : 'offen'; }   // nur teilweise gutgeschrieben, Rest offen
   else if (Math.abs(diff) <= 0.01) key = 'bezahlt';
-  else if (diff > 0) key = 'teil';
-  else key = zs.length >= 2 && (zs.filter(z => eq(z.betrag, brutto)).length >= 2 || eq(paid, 2 * brutto)) ? 'doppelt' : 'ueber';
+  else if (Math.abs(diff) <= CENT_TOLERANZ) { key = 'bezahlt'; erkl = ['Cent-Differenz ' + fmtE(-diff), 'st-info']; }
+  else if (diff > 0) { key = 'teil'; if (laut) erkl = ['Rest ' + fmtE(diff) + ' laut Liste bezahlt (Zahlung noch nicht gefunden)', 'st-info']; }
+  else {
+    key = zs.length >= 2 && (zs.filter(z => eq(z.betrag, brutto)).length >= 2 || eq(paid, 2 * brutto)) ? 'doppelt' : 'ueber';
+    if (NOTIZ_RUECK.test(r.notiz || '')) erkl = ['Rückzahlung laut Notiz', 'st-info'];
+  }
+  if (erkl) key = 'bezahlt';
   // Anzeige: der Status aus der Liste; ohne Eintrag ein passender Begriff aus derselben Liste
   const label = stx || ({ bezahlt: 'Bezahlt', extern: 'Bezahlt', erledigt: 'Bezahlt', storno: 'storniert', ueber: 'Zu viel bez.' }[key] || 'Offen');
   // Zusatzhinweis aus dem Abgleich, wenn er etwas anderes sagt als der Status
   let hint = null;
-  if (['ueber', 'doppelt', 'teil'].includes(key) && !(key === 'ueber' && /zu viel/i.test(label))) hint = R_ST[key];
+  if (erkl) hint = erkl;
+  else if (['ueber', 'doppelt', 'teil'].includes(key) && !(key === 'ueber' && /zu viel/i.test(label))) hint = R_ST[key];
   else if (key === 'ueberfaellig' && !/mahn/i.test(label)) hint = ['überfällig', 'st-late'];
   else if (key === 'bezahlt' && !istBezahltLaut(label)) hint = ['Zahlung gefunden', 'st-ok'];
   if (!hint && gut > 0.005) hint = ['Gutschrift ' + fmtE(gut) + ' verrechnet', 'st-info'];
-  return { key, label, cls: ST_CLS(label), hint, bezahlt: key === 'extern' ? brutto : paid, offen: key === 'erledigt' || key === 'storno' || key === 'extern' ? 0 : diff, zahlungen: zs, gutschriften: gs };
+  return { key, label, cls: ST_CLS(label), hint, erklaert: !!erkl, bezahlt: key === 'extern' ? brutto : paid, offen: key === 'erledigt' || key === 'storno' || key === 'extern' || erkl ? 0 : diff, zahlungen: zs, gutschriften: gs };
 }
+// Rechnungen mit Nachbarnummer (R26-0764 → R26-0762 … R26-0766)
+function nachbarn(r, pool) {
+  const m = String(r.nummer || '').match(/^(.*?)(\d+)$/); if (!m) return [];
+  const n = +m[2], w = m[2].length, ok = new Set([-2, -1, 1, 2].map(d => normNr(m[1] + String(n + d).padStart(w, '0'))));
+  return pool.filter(x => x.id !== r.id && x.nummer && ok.has(normNr(x.nummer)));
+}
+const CENT_TOLERANZ = 0.10;   // Rundungs-/Cent-Differenzen bis 10 Cent gelten als bezahlt
+const NOTIZ_RUECK = /zur(ü|ue)ck|erstatt|r(ü|ue)ck(ü|ue)berw|r(ü|ue)ckzahl|gutgeschrieben|verrechnet/i;   // „Doppelte Bezahlung, also 79,99 € zurück“
 // Nach einem Zahlungsfund den Status nachziehen: vollständig bezahlt → „Bezahlt“.
 // „Zu viel / zu wenig / doppelt“ bleibt nur ein Hinweis – das entscheidet ihr selbst (oft sind es Tippfehler in der Beschreibung).
 async function statusNachziehen(ids) {
@@ -193,7 +207,7 @@ async function autoAbgleich() {
       if (alias.length) { const c = Z.filter(x => x.rest > 0.005 && alias.some(a => x.keys.has(a)) && eq(x.rest, restR(r))); if (c.length === 1) hit = [c[0], 'Notiz: „' + n.slice(0, 40) + '“']; }
       // b) Zahltag: „bezahlt am 21.01.2026“, „08.01.2026 um 16:27 bezahlt“
       if (!hit && /bezahlt|gezahlt|überwiesen|ueberwiesen/i.test(n)) {
-        const d = n.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})?/);
+        const d = n.match(/(\d{1,2})\.(\d{1,2})\.?(\d{4}|\d{2}(?!:))?/);   // „11.04“, „11.04.“, „11.04.2026“ (nicht die Uhrzeit „14:56“)
         if (d) {
           let y = d[3] ? +d[3] : +(r.datum || todayISO()).slice(0, 4); if (y < 100) y += 2000;
           const tag = `${y}-${d[2].padStart(2, '0')}-${d[1].padStart(2, '0')}`, fenster = r.zahlart === 'ec' ? 0 : 3;
@@ -210,7 +224,15 @@ async function autoAbgleich() {
     const P = prepText(expandNr(text)), NS = new Set(nameTok(text));
     // 1) Rechnungsnummer(n) im Verwendungszweck – auch wenn schon bezahlt (→ doppelt/überzahlt wird sichtbar)
     const byNr = pool.filter(r => r.nummer && nrHit(r.nummer, P));
-    if (byNr.length === 1) { add(byNr[0], pay, kind, restPay, 'Rechnungsnummer im Text'); return true; }
+    if (byNr.length === 1) {
+      // Betrag passt nicht, aber die Nachbarnummer (±1/±2) hat genau diesen Betrag offen und ein ähnliches Datum → Zahlendreher/Vertipper
+      const r0 = byNr[0];
+      if (!eq(restR(r0), restPay)) {
+        const nb = nachbarn(r0, pool).filter(r => eq(restR(r), restPay) && (!r.datum || !pay.datum || Math.abs(daysBetween(r.datum, pay.datum)) <= 7));
+        if (nb.length === 1) { add(nb[0], pay, kind, restPay, `Nummer vertippt (${r0.nummer} statt ${nb[0].nummer}), Betrag passt`); return true; }
+      }
+      add(r0, pay, kind, restPay, 'Rechnungsnummer im Text'); return true;
+    }
     if (byNr.length > 1) {
       // mehrere Nummern-Treffer: zuerst der, bei dem auch Name bzw. Betrag passt (zufällige Ziffernfolgen, z. B. in Mandats-IDs, aussortieren)
       const nb = byNr.filter(r => nameHit(r.partner, NS) && eq(restR(r), restPay));
@@ -256,19 +278,24 @@ async function autoAbgleich() {
     if (pick) add(pick, s, 'sumup', rest, 'SumUp: Betrag und Datum');
   }
   // Kassenbuch: Bar-Einnahmen → Kundenrechnungen (Rechnungsnr. im Text, z. B. „R26-0048“), Bar-Ausgaben → Eingangsbelege
+  // Doppelte Kassenzeilen (gleiches Datum, Betrag, Beleg-Nr. und Text – z. B. der doppelte Januar-Block) zählen nur einmal als Zahlung
+  const kSig = k => [k.datum, r2(k.betrag), k.belegnr || '', norm(k.text || '')].join('|');
+  const kSigBelegt = new Set(S.kasse.filter(k => (IDX.zByK.get(k.id) || []).length).map(kSig));
   for (const k of S.kasse) {
     const rest = restP(k.id, kStatus(k).rest); if (rest <= 0.005) continue;
+    if (kSigBelegt.has(kSig(k))) continue;
     const pool = k.betrag > 0 ? ausg : eing;
-    if (matchPay(k, 'kasse', pool, rest)) continue;
+    const vorher = newZ.length;
+    if (matchPay(k, 'kasse', pool, rest)) { if (newZ.length > vorher) kSigBelegt.add(kSig(k)); continue; }
     if (siehtWieNummerAus(k.text)) {   // z. B. „R25-0010“: nur dieselbe laufende Nummer mit exakt gleichem Betrag, nie eine fremde Rechnung
       const ln = laufNr(k.text), c = pool.filter(r => ln.has(nrEnde(r.nummer)) && eq(restR(r), rest));
-      if (c.length === 1) add(c[0], k, 'kasse', rest, 'Nummer mit Tippfehler, Betrag passt');
+      if (c.length === 1) { add(c[0], k, 'kasse', rest, 'Nummer mit Tippfehler, Betrag passt'); kSigBelegt.add(kSig(k)); }
       continue;
     }
     // Bar-Beleg gleichen Betrags ±3 Tage (bevorzugt Zahlart bar)
     const c = pool.filter(r => restR(r) > 0.005 && eq(restR(r), rest) && r.datum && Math.abs(daysBetween(r.datum, k.datum)) <= 3);
     const bar = c.filter(r => r.zahlart === 'bar'), pick = bar.length === 1 ? bar[0] : c.length === 1 ? c[0] : null;
-    if (pick) add(pick, k, 'kasse', rest, 'Kasse: Betrag und Datum');
+    if (pick) { add(pick, k, 'kasse', rest, 'Kasse: Betrag und Datum'); kSigBelegt.add(kSig(k)); }
   }
   if (newZ.length) { await DB.insert('zuordnungen', newZ); await statusNachziehen(newZ.map(z => z.rechnung_id)); }
 

@@ -264,7 +264,7 @@ function viewRechnungen(dir) {
   const lim = UI.more[view] || 300, tot = sum(list, x => x.r.brutto), offen = sum(list, x => Math.max(0, x.st.offen));
   return `
   <div class="toolbar"><h1>${isA ? 'Rechnungsausgang' : 'Rechnungseingang'}</h1><span class="sp"></span>
-    ${isA ? `<button class="btn primary" data-act="pick" data-t="ausgang">⬆ Excel importieren</button>` : `<button class="btn primary" data-act="pickBeleg">⬆ Belege hochladen</button>`}
+    ${isA ? `<button class="btn primary" data-act="pick" data-t="ausgang">⬆ Excel importieren</button>` : `<button class="btn primary" data-act="bezahlen">💸 Bezahlen <span class="cnt">${zuZahlen().length}</span></button><button class="btn" data-act="pickBeleg">⬆ Belege hochladen</button>`}
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
   ${!isA ? `<div class="dropzone" data-act="pickBeleg" role="button" tabindex="0"><b>Rechnungen hierher ziehen</b><span>PDF, Foto oder die ganze E-Mail aus Outlook – auch mehrere auf einmal. ${DB.aiOn ? 'Die KI liest Lieferant, Nummer, Beträge und Kostenart aus.' : '(Auslesen per KI nur in der Online-Version.)'}</span></div>` : ''}
@@ -357,13 +357,15 @@ function viewAbgleich() {
   const sl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, suCols);
     return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 50).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 50 ? `<p class="small muted">+ ${l.length - 50} weitere unter „SumUp“.</p>` : ''}`; };
   return `
-  <div class="toolbar"><h1>Abgleich & Probleme</h1><span class="sp"></span><button class="btn primary" data-act="auto">⟳ Automatisch abgleichen</button></div>
+  <div class="toolbar"><h1>Abgleich & Probleme</h1><span class="sp"></span><button class="btn primary" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="neuAbgleich" title="Alle automatischen Zuordnungen verwerfen und mit den aktuellen Regeln neu berechnen – eigene (von Hand) bleiben">↻ Neu berechnen</button></div>
   <p class="muted">Der Abgleich ordnet Zahlungen über Rechnungsnummer im Verwendungszweck, Name/IBAN und Betrag zu. Unklare Fälle bleiben hier stehen – anklicken und von Hand zuordnen.</p>
   <div class="grid2">
     <section class="card"><h3>⚠ Doppelt bezahlt <span class="cnt">${grp('doppelt').length}</span></h3>${rows(grp('doppelt'), true, 'abgD')}</section>
     <section class="card"><h3>Zu viel bezahlt <span class="cnt">${grp('ueber').length}</span></h3>${rows(grp('ueber'), true, 'abgU')}</section>
     <section class="card"><h3>Zu wenig bezahlt <span class="cnt">${grp('teil').length}</span></h3>${rows(grp('teil'), true, 'abgT')}</section>
     <section class="card"><h3>Überfällige Kundenrechnungen <span class="cnt">${ueberf.length}</span></h3>${rows(ueberf, false, 'abgF')}</section>
+    ${(() => { const ek = all.filter(x => x.st.erklaert); return ek.length ? `<section class="card"><h3>✓ Abweichung erklärt <span class="cnt">${ek.length}</span></h3><p class="small muted">Cent-Differenzen, Rückzahlung laut Notiz oder laut Liste bezahlt – kein Handlungsbedarf.</p>
+      <div class="tw"><table class="tb click"><tbody>${ek.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(st.hint[0])}</td></tr>`).join('')}</tbody></table></div></section>` : ''; })()}
     <section class="card"><h3>Zahlungseingänge ohne Rechnung <span class="cnt">${bankOffen.length}</span></h3>${bl(bankOffen, 'abgB')}</section>
     <section class="card"><h3>EC-Zahlungen (SumUp) ohne Rechnung <span class="cnt">${sumOffen.length}</span></h3>${sl(sumOffen, 'abgS')}</section>
     <section class="card"><h3>Bankabgänge ohne Beleg und ohne Kostenart <span class="cnt">${bankAusOffen.filter(b => !b.kostenart).length}</span></h3>${bl(bankAusOffen.filter(b => !b.kostenart), 'abgK')}</section>

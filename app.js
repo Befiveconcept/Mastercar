@@ -139,6 +139,15 @@ Object.assign(A, {
   go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
+  bezahlen: () => bezahlenAnsicht(),
+  neuAbgleich: async () => {
+    const auto = S.zuordnungen.filter(z => z.art === 'auto');
+    if (!confirm(`${auto.length} automatische Zuordnungen verwerfen und mit den aktuellen Regeln neu berechnen?\nVon Hand zugeordnete Zahlungen bleiben unverändert.`)) return;
+    busy(true, 'Berechne den Abgleich neu …');
+    try { await DB.remove('zuordnungen', auto.map(z => z.id)); const r = await autoAbgleich(); toast(`Neu berechnet: ${r.n} Zuordnungen (vorher ${auto.length}).`); }
+    catch (e) { toast('Fehler: ' + e.message); }
+    busy(false); render();
+  },
   korbGo: () => korbVerarbeiten(),
   korbDel: d => { KORB.splice(+d.i, 1); korbRender(); },
   korbLeer: () => { KORB.length = 0; korbRender(); },
