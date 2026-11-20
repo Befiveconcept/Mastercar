@@ -57,7 +57,7 @@ async function eingangDrop(fileList) {
   const tables = files.filter(isTable);
   if (tables.length) { tables.forEach(f => importAuto(f)); }
   const docs = files.filter(f => !isTable(f)); if (!docs.length) return;
-  const ablage = await ablageOrdner(true); let abgelegt = 0;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
+  const ablage = await ablageOrdner(true), logStart = ABLAGE_LOG.length;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
@@ -69,7 +69,7 @@ async function eingangDrop(fileList) {
   // PDF an eine schon vorhandene Rechnung (z. B. aus der Excel) hängen statt sie doppelt anzulegen
   const anhaengen = async (r, b) => {
     if (r.datei) { doppelt.push(b.name + (r.nummer ? ' (Nr. ' + r.nummer + ', hat schon eine PDF)' : '')); return; }
-    await belegAnhaengen(r, b.file); if (r.richtung === 'eingang' && ablage) abgelegt++; ergaenzt.push(r);
+    await belegAnhaengen(r, b.file); ergaenzt.push(r);
   };
   // Zahlungsavis: eigener Eintrag (Art „Zahlungsavis“, Betrag 0 → zählt nicht in GuV/Offene Posten), PDF benannt und abgelegt,
   // bei den genannten Rechnungen wird ein Hinweis in die Notiz geschrieben
@@ -84,7 +84,7 @@ async function eingangDrop(fileList) {
       beschreibung: `Zahlungsavis${betrag != null ? ' über ' + fmtE(betrag) : ''}${nrn.length ? ' für ' + nrn.join(', ') : ''}`, erledigt: true, status_excel: 'Bezahlt',
       quelle: DB.aiOn ? 'ki' : 'manuell', geprueft: false, schluessel: 'AV:' + fh,
       notiz: bezug.length ? 'Betrifft: ' + bezug.map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(', ') : null };
-    Object.assign(row, await belegSpeichern(row, b.file)); if (ablage) abgelegt++;
+    Object.assign(row, await belegSpeichern(row, b.file));
     const [n] = await DB.insert('rechnungen', [row]); if (!n) { doppelt.push(b.name); return; }
     avise.push({ r: n, bezug });
     for (const r of bezug) { const z = `Zahlungsavis vom ${fmtD(datum)}${betrag != null ? ' (' + fmtE(betrag) + ')' : ''} liegt vor`; if (!(r.notiz || '').includes(z)) await DB.update('rechnungen', r.id, { notiz: [r.notiz, z].filter(Boolean).join(' · ') }); }
@@ -112,13 +112,13 @@ async function eingangDrop(fileList) {
       const row = { richtung: 'eingang', art: 'Mahnung', partner: (ziel && ziel.partner) || String(x.lieferant || '').trim() || b.name, nummer: (ziel && ziel.nummer) || nrn[0] || null, datum, brutto: 0, netto: 0, mwst: 0,
         beschreibung: `${MLABEL[stufe - 1]}${nrn.length ? ' für ' + nrn.join(', ') : ''}`, erledigt: true, status_excel: 'Bezahlt', quelle: DB.aiOn ? 'ki' : 'manuell', geprueft: false,
         schluessel: 'MA:' + (await fileHash(doc || b.file)), notiz: ziele.length ? 'Betrifft: ' + ziele.map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(', ') : 'Angemahnte Rechnung ist noch nicht in der App' };
-      if (doc && !S.rechnungen.some(r => r.schluessel === row.schluessel)) { Object.assign(row, await belegSpeichern(row, doc)); if (ablage) abgelegt++; await DB.insert('rechnungen', [row]); }
+      if (doc && !S.rechnungen.some(r => r.schluessel === row.schluessel)) { Object.assign(row, await belegSpeichern(row, doc)); await DB.insert('rechnungen', [row]); }
       mahnungen.push({ label: MLABEL[stufe - 1], partner: row.partner, nrn, ziele: ziele.map(r => S.rechnungen.find(y => y.id === r.id)) });
     }
     // Angehängte Rechnung: PDF an die vorhandene hängen – oder (noch nicht da) gleich als Rechnung mit Mahnstatus anlegen
     if (x.ist_rechnung !== false && x.brutto && x.nummer) {
       const r = ziele.find(r => normNr(r.nummer) === normNr(x.nummer));
-      if (r) { if (!r.datei) { await belegAnhaengen(r, b.file); if (ablage) abgelegt++; ergaenzt.push(r); } return true; }
+      if (r) { if (!r.datei) { await belegAnhaengen(r, b.file); ergaenzt.push(r); } return true; }
       x._mahnStatus = MLABEL[stufe - 1]; return false;
     }
     return true;
@@ -158,7 +158,7 @@ async function eingangDrop(fileList) {
         status_excel: x._mahnStatus ? x._mahnStatus : x.bezahlung === 'lastschrift' ? 'Abbuchung offen' : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : 'Offen',
         notiz: x.bezahlung === 'lastschrift' ? 'Laut Beleg per Lastschrift' : x.bezahlung === 'bereits_bezahlt' ? 'Laut Beleg bereits bezahlt' : null };
       // Datei nach Schema benennen: VE Sport_Lieferant_Art_Nummer_Datum.pdf – in der Cloud und (falls gewählt) im Ablage-Ordner
-      Object.assign(row, await belegSpeichern(row, b.file)); if (ablage) abgelegt++;
+      Object.assign(row, await belegSpeichern(row, b.file));
       const added = await DB.insert('rechnungen', [row]);
       if (added.length) neu.push(added[0]); else doppelt.push(b.name);
     } catch (e) { console.error(e); fehler.push(b.name + ': ' + (e.message || e)); }
@@ -172,7 +172,7 @@ async function eingangDrop(fileList) {
   openSheet({
     title: 'Belege übernommen', noOk: true, wide: true, html: `
     ${neu.length ? `<p><b>${neu.length}</b> Eingangsrechnung${neu.length === 1 ? '' : 'en'} angelegt${DB.aiOn ? ' – von der KI ausgelesen, bitte kurz prüfen' : ' – bitte Beträge eintragen (KI nur online)'}.${res.n ? ' ' + res.n + ' Zahlung(en) automatisch zugeordnet.' : ''}</p>
-    <p class="small muted">${abgelegt ? `${abgelegt} Datei(en) im Ordner „${esc(ablage.name)}“ abgelegt` : ABLAGE ? 'Ablage-Ordner ohne Zugriff – unter Einstellungen erneut erlauben' : 'Kein Ablage-Ordner gewählt (Einstellungen → Beleg-Ablage)'} · Name: VE Sport_Lieferant_Art_Nummer_Datum</p>
+    ${ablageMeldung(ABLAGE_LOG.slice(logStart))}<p class="small muted">Dateiname: VE Sport_Firma_Art_Nummer_Datum</p>
     <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
     ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}

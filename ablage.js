@@ -21,18 +21,32 @@ async function belegSpeichern(r, file) {
   const name = belegName(r, dateiEndung(file.name, file.type)), dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
   const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
   await DB.upload(datei, file);
-  let dateiname = name;
-  if (dir === 'eingang') { const ord = await ablageOrdner(false); if (ord) { try { dateiname = await ablageSchreiben(ord, name, file); } catch (e) { console.warn(e); } } }
-  return { datei, dateiname };
+  let dateiname = name, _ordner = false, _grund = '';
+  if (dir === 'eingang') {
+    const ord = await ablageOrdner(false);
+    if (!ord) _grund = !ablageMoeglich() ? 'Browser kann keine Ordner (Chrome/Edge nehmen)' : !ABLAGE ? 'kein Ordner gewählt' : 'kein Zugriff auf den Ordner erlaubt';
+    else { try { dateiname = await ablageSchreiben(ord, name, file); _ordner = true; } catch (e) { console.warn(e); _grund = 'Schreiben fehlgeschlagen: ' + (e.message || e.name); } }
+    ABLAGE_LOG.push({ name: dateiname, ok: _ordner, grund: _grund });
+  }
+  return { datei, dateiname, _ordner, _grund };   // Felder mit _ werden nicht gespeichert
+}
+const ABLAGE_LOG = [];   // was wurde (nicht) in den Ordner gelegt – für die Rückmeldung
+function ablageMeldung(log) {
+  if (!log.length) return '';
+  const ok = log.filter(l => l.ok), nein = log.filter(l => !l.ok);
+  return `<div class="${nein.length ? 'warn' : 'note'} small">${ok.length ? `📁 ${ok.length} Datei${ok.length === 1 ? '' : 'en'} im Ordner „${esc(ABLAGE ? ABLAGE.name : '')}“ gespeichert.` : ''}
+    ${nein.length ? `⚠ ${nein.length} Datei${nein.length === 1 ? '' : 'en'} <b>nicht</b> im Ordner gespeichert – ${esc([...new Set(nein.map(l => l.grund))].join('; '))}. Unter Einstellungen → Beleg-Ablage den Ordner wählen bzw. „Vorhandene Belege jetzt ablegen“ klicken.` : ''}</div>`;
 }
 // Datei (PDF, Foto oder Mail) an eine bestimmte Rechnung hängen – Mail: erster PDF-Anhang, sonst Mailtext als PDF
 async function belegZuRechnung(id, file) {
   const r = S.rechnungen.find(x => x.id === id); if (!r || !file) return;
+  if (r.richtung !== 'ausgang') await ablageOrdner(true);   // direkt nach Klick/Drop um Ordner-Erlaubnis bitten
   busy(true, 'PDF wird gespeichert …');
   try {
     const bs = await fileToBelege(file); let b = bs.find(x => /pdf/.test(x.type)) || bs[0]; if (!b) return toast('Keine PDF gefunden.');
     let f = b.file; if (b.type === 'message/rfc822' && b.mail) f = new File([textPdf(b.mail.subject || 'E-Mail', `Von: ${b.mail.from}\n\n${b.mail.text}`)], 'Mail.pdf', { type: 'application/pdf' });
-    await belegAnhaengen(r, f); toast('PDF hinterlegt: ' + S.rechnungen.find(x => x.id === id).dateiname);
+    const p = await belegAnhaengen(r, f);
+    toast('PDF hinterlegt: ' + p.dateiname + (r.richtung === 'ausgang' ? '' : p._ordner ? ' · 📁 im Ordner gespeichert' : ' · ⚠ NICHT im Ordner (' + p._grund + ')'));
   } catch (e) { console.error(e); toast('PDF nicht gespeichert: ' + (e.message || e)); }
   finally { busy(false); }
   render(); rechnungDetail(id);
