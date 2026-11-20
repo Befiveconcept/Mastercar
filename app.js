@@ -56,6 +56,7 @@ function twEnhance(root) {
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
       <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
     box.appendChild(tw); tw.classList.add('scroll');
+    twSpalten(tw, key, box);
     if (TW.max === key) { box.classList.add('max'); document.body.classList.add('tw-max-on'); }
     const fr = tw.querySelector('tr.frow'), h1 = tw.querySelector('thead tr');
     if (fr && h1) fr.querySelectorAll('th').forEach(th => th.style.top = h1.offsetHeight + 'px');
@@ -66,14 +67,44 @@ function twEnhance(root) {
       const a = e.target.closest('[data-tw]')?.dataset.tw; if (!a) return;
       if (a === 'l' || a === 'r') { tw.scrollLeft += (a === 'l' ? -1 : 1) * Math.max(200, tw.clientWidth * 0.7); TW.pos[key] = [tw.scrollLeft, tw.scrollTop]; twPfeile(box, tw); }
       if (a === 'max') { TW.max = TW.max === key ? null : key; render(); }
+      if (a === 'reset') { delete SPALTEN[key]; spaltenSpeichern(); render(); }
     });
     // Mit gedrückter Maus seitlich ziehen (Klick ohne Bewegung öffnet weiter die Zeile)
-    tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a')) return; TW.drag = { tw, sx: e.clientX, sl: tw.scrollLeft, bewegt: false }; });
+    tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a,thead')) return; TW.drag = { tw, sx: e.clientX, sl: tw.scrollLeft, bewegt: false }; });
     tw.addEventListener('click', e => { if (TW.nachZiehen) { e.stopPropagation(); e.preventDefault(); } }, true);
   });
 }
 window.addEventListener('mousemove', e => { const d = TW.drag; if (!d) return; const dx = e.clientX - d.sx; if (!d.bewegt && Math.abs(dx) > 6) { d.bewegt = true; d.tw.classList.add('ziehen'); } if (d.bewegt) { d.tw.scrollLeft = d.sl - dx; e.preventDefault(); } });
 window.addEventListener('mouseup', () => { const d = TW.drag; if (!d) return; TW.drag = null; d.tw.classList.remove('ziehen'); if (d.bewegt) { TW.nachZiehen = true; setTimeout(() => TW.nachZiehen = false, 0); } });
+/* Spalten-Reihenfolge je Tabelle (pro Browser gemerkt) + Namensspalte links fixieren */
+const SPALTEN = (() => { try { return JSON.parse(localStorage.getItem('mc-spalten')) || {}; } catch (e) { return {}; } })();
+function spaltenSpeichern() { try { localStorage.setItem('mc-spalten', JSON.stringify(SPALTEN)); } catch (e) { } }
+function twSpalten(tw, key, box) {
+  const h = tw.querySelector('thead tr'); if (!h) return;
+  const keys = [...h.children].map(th => th.dataset.k || ''), n = keys.length;
+  const want = SPALTEN[key];
+  if (want && keys.every(Boolean)) {
+    const order = [...want.filter(k => keys.includes(k)), ...keys.filter(k => !want.includes(k))].map(k => keys.indexOf(k));
+    if (order.some((v, i) => v !== i)) tw.querySelectorAll('tr').forEach(tr => { const c = [...tr.children]; if (c.length === n) order.forEach(i => tr.appendChild(c[i])); });
+    box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spaltenreihenfolge">↺ Spalten</button>');
+  }
+  const hs = [...h.children], ni = hs.findIndex(th => th.dataset.name);
+  if (ni >= 0) tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length === n) tr.children[ni].classList.add('stick'); });
+  hs.forEach(th => {
+    if (!th.dataset.k) return; th.draggable = true;
+    th.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-spalte', th.dataset.k); e.dataTransfer.effectAllowed = 'move'; th.classList.add('zieht'); });
+    th.addEventListener('dragend', () => { th.classList.remove('zieht'); hs.forEach(t => t.classList.remove('ziel')); });
+    th.addEventListener('dragover', e => { if (![...e.dataTransfer.types].includes('text/x-spalte')) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; th.classList.add('ziel'); });
+    th.addEventListener('dragleave', () => th.classList.remove('ziel'));
+    th.addEventListener('drop', e => {
+      const k = e.dataTransfer.getData('text/x-spalte'); th.classList.remove('ziel'); if (!k || k === th.dataset.k) return;
+      e.preventDefault();
+      const cur = [...h.children].map(t => t.dataset.k), von = cur.indexOf(k), ziel = cur.indexOf(th.dataset.k);
+      cur.splice(von, 1); cur.splice(von < ziel ? cur.indexOf(th.dataset.k) + 1 : cur.indexOf(th.dataset.k), 0, k);   // nach rechts: hinter das Ziel, nach links: davor
+      SPALTEN[key] = cur; spaltenSpeichern(); render();
+    });
+  });
+}
 function twPfeile(box, tw) {
   const breit = tw.scrollWidth > tw.clientWidth + 2;
   box.classList.toggle('breit', breit);

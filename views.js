@@ -193,16 +193,19 @@ function colAktiv(view) { const st = UI.cs[view] || {}; return !!(st.k || Object
 // base = Liste vor den Spaltenfiltern (für die Auswahllisten)
 function colHead(view, cols, base) {
   const st = UI.cs[view] || {};
-  const r1 = cols.map(c => `<th class="srt ${c.num ? 'num' : ''} ${st.k === c.k ? 'on' : ''}" data-act="colSort" data-v="${view}" data-k="${c.k}" title="Sortieren">${c.l}<span class="sa">${st.k === c.k ? (st.d === 'desc' ? '▼' : '▲') : '↕'}</span></th>`).join('');
+  const nm = c => NAME_SPALTEN.includes(c.k) ? ' data-name="1"' : '';
+  const r1 = cols.map(c => `<th class="srt ${c.num ? 'num' : ''} ${st.k === c.k ? 'on' : ''}" data-act="colSort" data-v="${view}" data-k="${c.k}"${nm(c)} title="Klick = sortieren · Ziehen = Spalte verschieben">${c.l}<span class="sa">${st.k === c.k ? (st.d === 'desc' ? '▼' : '▲') : '↕'}</span></th>`).join('');
   const fz = cols.map(c => {
     if (c.nof) return '<th></th>';
     if (c.sel) { const f = (st.f && st.f[c.k]) || '', opts = [...new Set(base.map(x => colT(c, x)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
       return `<th><select class="cf ${f ? 'on' : ''}" data-chg="colF" data-v="${view}" data-k="${c.k}" aria-label="Filter ${c.l}"><option value="">Alle</option>${opts.map(o => `<option value="${esc(o)}" ${o === f ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></th>`; }
     const v = UI.q[view + '|' + c.k] || '';
     return `<th><input class="cf ${v ? 'on' : ''}" type="search" data-q="${view}|${c.k}" value="${esc(v)}" placeholder="${c.num ? 'z. B. >100' : 'Filter'}" aria-label="Filter ${c.l}"></th>`;
-  }).join('');
+  }).map((h, i) => h.replace('<th', `<th data-k="${cols[i].k}"`)).join('');
   return `<thead><tr>${r1}</tr><tr class="frow">${fz}</tr></thead>`;
 }
+// Diese Spalte bleibt beim seitlichen Schieben links stehen (Kunde, Firma, Name, Partner …)
+const NAME_SPALTEN = ['kunde', 'lief', 'name', 'partner', 'beschr', 'text'];
 const colTxt = (k, l, f) => ({ k, l, v: x => f(x) || '' });
 const colDat = (k, l, f) => ({ k, l, v: x => f(x) || '', t: x => f(x) ? fmtD(f(x)) + ' ' + f(x) : '' });
 const colNum = (k, l, f) => ({ k, l, num: true, v: x => { const v = f(x); return v == null || v === '' ? null : Number(v); }, t: x => { const v = f(x); return v == null || v === '' ? '' : fmtE(v) + ' ' + v; } });
