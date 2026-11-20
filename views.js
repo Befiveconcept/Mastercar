@@ -348,7 +348,7 @@ function ausgangStand() {
 }
 function wartetAufRechnung(text, datum, stand) {
   const nrs = [...String(text || '').matchAll(/r\s?(\d{2})\s?[-\/ ]\s?(\d{3,5})/gi)];
-  if (nrs.length) return nrs.some(m => stand.max[m[1]] && +m[2] > stand.max[m[1]]);
+  if (nrs.length) return nrs.some(m => (stand.max[m[1]] && +m[2] > stand.max[m[1]]) || +m[1] < +START_DATUM.slice(2, 4));   // noch nicht importiert – oder Rechnung von vor 2026
   return !!(datum && stand.letzt && datum > stand.letzt);
 }
 
@@ -390,8 +390,9 @@ function viewAbgleich() {
     { k: 'ueberf', t: 'Überfällige Kundenrechnungen', ton: 'bad', l: ueberf, s: x => x.st.offen, html: () => rows(ueberf, false, 'abgF'), info: 'Zahlungsziel überschritten, noch keine Zahlung gefunden.' },
     { k: 'bank', t: 'Zahlungseingänge ohne Rechnung', ton: 'warn', l: bankOffen, s: b => b.betrag, html: () => bl(bankOffen, 'abgB') },
     { k: 'sumup', t: 'EC-Zahlungen (SumUp) ohne Rechnung', ton: 'warn', l: sumOffen, s: s => s.betrag, html: () => sl(sumOffen, 'abgS'),
-      info: warten ? `Nicht aufgeführt: ${warten} Zahlung${warten === 1 ? '' : 'en'} zu Rechnungen, die noch nicht importiert sind${nextNr ? ` (ab ${nextNr} bzw. nach dem ${fmtD(stand.letzt)})` : ''} – sie werden zugeordnet, sobald das nächste Werkstatt Journal kommt.` : '' },
+      info: warten ? `Nicht aufgeführt: ${warten} Zahlung${warten === 1 ? '' : 'en'} zu Rechnungen, die noch nicht importiert sind${nextNr ? ` (ab ${nextNr} bzw. nach dem ${fmtD(stand.letzt)})` : ''} oder von vor 2026 stammen – sie werden zugeordnet, sobald das nächste Werkstatt Journal kommt.` : '' },
     { k: 'kosten', t: 'Bankabgänge ohne Beleg und ohne Kostenart', ton: 'warn', l: ohneBeleg, s: b => -b.betrag, html: () => bl(ohneBeleg, 'abgK') },
+    { k: 'regeln', t: '📝 Eigene Regeln & Hinweise', ton: 'ok', l: regeln(), s: () => 0, html: regelnHtml, immer: true },
     { k: 'erkl', t: '✓ Abweichung erklärt', ton: 'ok', l: ek, s: () => 0, html: ekTab, info: 'Cent-Differenzen, Rückzahlung laut Notiz oder laut Liste bezahlt – kein Handlungsbedarf.' }
   ];
   UI.abgOpen = UI.abgOpen || (() => { const f = R.find(x => x.l.length && x.ton !== 'ok'); return f ? { [f.k]: true } : {}; })();
@@ -404,7 +405,7 @@ function viewAbgleich() {
     const n = x.l.length, su = sum(x.l, x.s), auf = !!UI.abgOpen[x.k];
     return `<details class="abg ton-${n ? x.ton : 'leer'}" data-abg="${x.k}" ${auf ? 'open' : ''}>
       <summary><span class="abg-t">${x.t}</span><span class="cnt">${n}</span>${n && su ? `<span class="abg-s">${fmtE(su)}</span>` : ''}<span class="sp"></span><span class="abg-z">${n ? '' : 'alles gut'}</span><span class="abg-c" aria-hidden="true">▾</span></summary>
-      <div class="abg-b">${x.info ? `<p class="small muted">${x.info}</p>` : ''}${auf ? (n ? x.html() : '<div class="empty small">Nichts – alles gut.</div>') : ''}</div>
+      <div class="abg-b">${x.info ? `<p class="small muted">${x.info}</p>` : ''}${auf ? (n || x.immer ? x.html() : '<div class="empty small">Nichts – alles gut.</div>') : ''}</div>
     </details>`; }).join('')}</div>`;
 }
 

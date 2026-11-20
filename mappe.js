@@ -91,11 +91,13 @@ function parseAusgang(rows) {
 function parseKasse(rows) {
   const hi = findKopf(rows, ['einnahmen', 'ausgaben', 'datum']); if (hi < 0) return null;
   const h = rows[hi], c = { ein: colIdx(h, 'Einnahmen'), aus: colIdx(h, 'Ausgaben'), gk: colIdx(h, 'Nr.'), beleg: colIdx(h, 'Nr.2', 'Beleg-Nr.'), datum: colIdx(h, 'Datum'), kto: colIdx(h, 'Kto.'), text: colIdx(h, 'Spalte3', 'Text'), best: colIdx(h, 'Bestand') };
-  const out = [], seen = {}; let anfang = null;
+  const out = [], seen = {}; let anfang = null, jahr = null;
   rows.slice(hi + 1).forEach(r => {
     const t = txt(r, c.text);
     if (/anfangsbestand/i.test(t)) { anfang = parseNum(cell(r, c.best)); return; }
-    const datum = parseDate(cell(r, c.datum)), ein = parseNum(cell(r, c.ein)) || 0, aus = parseNum(cell(r, c.aus)) || 0;
+    let datum = parseDate(cell(r, c.datum)); const ein = parseNum(cell(r, c.ein)) || 0, aus = parseNum(cell(r, c.aus)) || 0;
+    // Datum ohne Jahr in der Excel (wird zu 1900-01-28): Jahr der Zeilen davor übernehmen
+    if (datum && +datum.slice(0, 4) < 2000) datum = (jahr || START_DATUM.slice(0, 4)) + datum.slice(4); else if (datum) jahr = datum.slice(0, 4);
     if (!datum || (!ein && !aus)) return;
     const betrag = r2(ein - Math.abs(aus)), k0 = 'K' + hashStr([datum, betrag, norm(t), txt(r, c.beleg)].join('|')); seen[k0] = (seen[k0] || 0) + 1;
     out.push({ datum, betrag, belegnr: txt(r, c.beleg) || null, konto: txt(r, c.kto) || null, gegenkonto: txt(r, c.gk) || null, text: t || null,
@@ -127,7 +129,7 @@ function parseHebe(rows) {
   rows.slice(hi + 1).forEach(r => {
     let datum = parseDate(cell(r, c.datum)); const ma = txt(r, c.ma); if (!datum || !ma) return;
     let notiz = null;
-    if (Math.abs(+datum.slice(0, 4) - mainY) > 1) {
+    if (+datum.slice(0, 4) !== mainY) {   // das Blatt gilt für ein Jahr – jede Abweichung (2025, 2226 …) ist ein Tippfehler
       const kw = parseNum(cell(r, c.kw)), wd = (new Date(datum + 'T12:00:00').getDay() + 6) % 7;
       const nd = kw >= 1 && kw <= 53 ? addDays(isoWeekMonday(mainY, kw), wd) : mainY + datum.slice(4);
       notiz = 'Datum korrigiert (in Excel: ' + fmtD(datum) + ')'; datum = nd; fixed++;
@@ -185,6 +187,9 @@ async function importMappe(file, tbl) {
     if (get('todos')) P.todos = parseTodos(get('todos'));
     if (get('hebe')) P.hebe = parseHebe(get('hebe'));
   } catch (e) { busy(false); console.error(e); return toast('Fehler beim Lesen: ' + e.message); }
+  // Nur ab 2026: ältere Zeilen (z. B. Rechnungen aus 2025) gar nicht erst anbieten
+  const vor = { n: 0 }, ab2026 = l => l ? l.filter(r => { const ok = !r.datum || r.datum >= START_DATUM; if (!ok) vor.n++; return ok; }) : l;
+  P.eingang = ab2026(P.eingang); P.ausgang = ab2026(P.ausgang); if (P.kasse) P.kasse.rows = ab2026(P.kasse.rows); if (P.hebe) P.hebe.rows = ab2026(P.hebe.rows);
   busy(false);
   const n = { eingang: P.eingang?.length, ausgang: P.ausgang?.length, kasse: P.kasse?.rows.length, todos: P.todos?.length, hebe: P.hebe?.rows.length };
   const exist = { kasse: new Set(S.kasse.map(r => r.schluessel)), todos: new Set(S.todos.map(r => r.schluessel)), hebe: new Set(S.hebebuehne.map(r => r.schluessel)) };
@@ -198,7 +203,7 @@ async function importMappe(file, tbl) {
   const TITEL = { eingang: 'Ein- und Ausgaben übernehmen', ausgang: 'Werkstatt Journal übernehmen', kasse: 'Barkasse übernehmen', todos: 'To-Dos übernehmen', hebe: 'Hebebühne übernehmen' };
   openSheet({
     title: anz === 1 ? TITEL[Object.keys(n).find(k => n[k] != null)] : 'Arbeitsmappe übernehmen', wide: true, okLabel: 'Übernehmen', html: `
-    <p class="small muted">${esc(file.name)} · Neue Einträge werden angelegt. Rechnungen, die es schon gibt, bekommen die Änderungen aus der Datei (z. B. Status „Bezahlt“ oder „Mahnung“); alles andere bleibt, wie es ist. Die Datei kann also jede Woche wieder reingezogen werden.</p>
+    <p class="small muted">${esc(file.name)} · Neue Einträge werden angelegt. Rechnungen, die es schon gibt, bekommen die Änderungen aus der Datei (z. B. Status „Bezahlt“ oder „Mahnung“); alles andere bleibt, wie es ist. Die Datei kann also jede Woche wieder reingezogen werden.${vor.n ? ` <b>${vor.n} Zeilen vor 2026 werden übersprungen.</b>` : ''}</p>
     <div class="chklist">
       ${line('eingang', 'Ein- und Ausgaben → Rechnungseingang', ' (inkl. Gutschriften, Verträge, Stornos)')}
       ${line('ausgang', 'Werkstatt Journal → Rechnungsausgang')}

@@ -241,7 +241,9 @@ Antworte nur mit JSON {"feld": Spaltenindex oder null}.`, { tier: 'quick' });
 const fmtCell = v => v instanceof Date ? fmtD(parseDate(v)) : (v ?? '');
 
 async function runImport(type, fileName, { out, skipped }) {
-  if (!out.length) { toast('Keine Zeilen zum Importieren.'); return; }
+  const vor2026 = out.filter(r => r.datum && r.datum < START_DATUM).length; out = out.filter(r => !r.datum || r.datum >= START_DATUM);   // nur ab 2026
+  if (vor2026) skipped = skipped.concat(Array(vor2026).fill({ why: 'vor 2026' }));
+  if (!out.length) { toast(vor2026 ? 'Alle Zeilen sind vor 2026 – nichts übernommen.' : 'Keine Zeilen zum Importieren.'); return; }
   busy(true, 'Importiere ' + out.length + ' Zeilen …');
   try {
     const table = type === 'ausgang' ? 'rechnungen' : type;

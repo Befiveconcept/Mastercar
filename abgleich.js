@@ -12,7 +12,7 @@ function buildIdx() {
 const sollOf = r => r2((+r.brutto || 0) - (+r.skonto || 0));
 const isStorno = r => /storn/i.test((r.status_excel || '') + ' ' + (r.art || '') + ' ' + (r.zahlart || ''));
 const sum = (a, f = x => x) => r2(a.reduce((s, x) => s + (+f(x) || 0), 0));
-const sumOk = s => !/fehl|failed|storn|abgebrochen|cancel|declin|abgelehnt/i.test(s.status || '');
+const sumOk = s => !/fehl|failed|storn|abgebrochen|cancel|declin|abgelehnt|ignor/i.test(s.status || '');
 
 const R_ST = {
   offen: ['Offen', 'st-open'], ueberfaellig: ['Überfällig', 'st-late'], bezahlt: ['Bezahlt', 'st-ok'], teil: ['Zu wenig bezahlt', 'st-warn'],
@@ -104,6 +104,7 @@ function sStatus(s) {
 
 function kStatus(k) {
   const zs = IDX.zByK.get(k.id) || [], used = sum(zs, z => z.betrag), rest = r2(Math.abs(k.betrag) - used);
+  if (!zs.length && /umbuchung|privat|ignor/i.test(k.kostenart || '')) return { key: 'intern', label: /umbuchung/i.test(k.kostenart) ? 'Umbuchung Kasse → Bank' : k.kostenart, cls: 'st-info', rest: 0, zuordnungen: zs };   // per Regel eingeordnet
   if (!zs.length) return { key: 'offen', label: k.betrag < 0 && k.kostenart ? 'Kosten ohne Beleg' : 'Ohne Beleg', cls: k.betrag < 0 && k.kostenart ? 'st-info' : 'st-open', rest, zuordnungen: zs };
   return rest <= 0.01 ? { key: 'zugeordnet', label: 'Zugeordnet', cls: 'st-ok', rest: 0, zuordnungen: zs } : { key: 'teilweise', label: 'Teilweise', cls: 'st-warn', rest, zuordnungen: zs };
 }
@@ -170,6 +171,7 @@ function vorschlaege(pay, kind) {
 
 /* ---------- Automatischer Abgleich ---------- */
 async function autoAbgleich() {
+  if (typeof regelnAnwenden === 'function') await regelnAnwenden().catch(e => console.warn(e));   // eigene Regeln zuerst (z. B. Bareinzahlungen = Umbuchung)
   buildIdx();
   const newZ = [], extraR = new Map(), extraP = new Map();
   // offener Betrag nur aus echten Zahlungen (auch „laut Liste bezahlt“ darf noch seine Zahlung finden)

@@ -1,6 +1,10 @@
 /* Mastercar Finanzen · Datenhaltung: Supabase (online) oder Browser-Speicher (Demo-Modus) */
 const TABLES = ['rechnungen', 'bank', 'sumup', 'zuordnungen', 'importe', 'kasse', 'todos', 'hebebuehne', 'avise'];
 const S = { rechnungen: [], bank: [], sumup: [], zuordnungen: [], importe: [], kasse: [], todos: [], hebebuehne: [], avise: [], einstellungen: {}, user: null };
+// Die Software arbeitet nur mit Daten ab 2026 – Älteres wird beim Import übersprungen und beim Laden ausgeblendet (bleibt in der Datenbank)
+const START_DATUM = '2026-01-01';
+const MIT_DATUM = ['rechnungen', 'bank', 'sumup', 'kasse', 'hebebuehne', 'avise'];
+const abStart = (t, r) => !MIT_DATUM.includes(t) || !r.datum || String(r.datum) >= START_DATUM;
 const CONFLICT = { rechnungen: 'schluessel', bank: 'schluessel', sumup: 'transaktion', kasse: 'schluessel', todos: 'schluessel', hebebuehne: 'schluessel', avise: 'schluessel' };
 
 const DB = (() => {
@@ -47,10 +51,10 @@ const DB = (() => {
     return p.split(/[._-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
   }
   async function loadAll() {
-    if (!cloud) { const o = local(); TABLES.forEach(t => S[t] = o[t] || []); S.einstellungen = o.einstellungen || {}; S.meName = 'Demo'; return; }
+    if (!cloud) { const o = local(); TABLES.forEach(t => S[t] = (o[t] || []).filter(r => abStart(t, r))); S.einstellungen = o.einstellungen || {}; S.meName = 'Demo'; return; }
     // Tabellen der Erweiterung (02_erweiterung.sql) dürfen noch fehlen – dann leer und Hinweis
     const res = await Promise.all(TABLES.map(t => selectAll(t).catch(e => { if (['kasse', 'todos', 'hebebuehne', 'avise'].includes(t)) { S._fehlt = (S._fehlt || []).concat(t); return []; } throw e; })));
-    TABLES.forEach((t, i) => S[t] = res[i]);
+    TABLES.forEach((t, i) => S[t] = res[i].filter(r => abStart(t, r)));
     const { data } = await sb.from('einstellungen').select('*');
     S.einstellungen = Object.fromEntries((data || []).map(r => [r.schluessel, r.wert]));
     const { data: tm } = await sb.from('team').select('email,name');
@@ -62,7 +66,7 @@ const DB = (() => {
 
   // Einfügen; doppelte (gleicher Schlüssel) werden übersprungen. Gibt die neu angelegten Zeilen zurück.
   async function insert(t, rows) {
-    rows = rows.map(clean); if (!rows.length) return [];
+    rows = rows.map(clean).filter(r => abStart(t, r)); if (!rows.length) return [];   // vor 2026 wird nichts übernommen
     const key = CONFLICT[t];
     if (!cloud) {
       const have = new Set(key ? S[t].map(r => r[key]).filter(Boolean) : []); const added = [];

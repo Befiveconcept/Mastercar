@@ -140,6 +140,14 @@ Object.assign(A, {
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
+  regelNeu: async () => {
+    const t = ($('#rgText') || {}).value || ''; if (t.trim().length < 5) return toast('Bitte erst den Hinweis in eigenen Worten eintippen.');
+    busy(true, DB.aiOn ? 'KI macht daraus eine Regel …' : 'Regel vorbereiten …');
+    try { const g = await regelAusText(t.trim()); busy(false); regelForm({ ...g, text: t.trim(), kurz: g.kurz || t.trim() }, null); }
+    catch (e) { busy(false); toast(aiErr(e)); regelForm({ text: t.trim(), kurz: t.trim(), quelle: 'bank', richtung: 'beide', suche: [], oder: [], aktion: 'ignorieren' }, null); }
+  },
+  regelEdit: d => regelForm(regeln()[+d.i], +d.i),
+  regelDel: async d => { const l = regeln().slice(), g = l[+d.i]; if (!confirm('Regel löschen?\n' + (g.kurz || g.text || ''))) return; l.splice(+d.i, 1); await regelnSpeichern(l); render(); toast('Regel gelöscht – bereits eingeordnete Einträge bleiben, bis du sie änderst.'); },
   abgAlle: d => { UI.abgOpen = {}; if (d.v === '1') $$('details.abg').forEach(x => UI.abgOpen[x.dataset.abg] = true); render(); },
   neuAbgleich: async () => {
     const auto = S.zuordnungen.filter(z => z.art === 'auto');
