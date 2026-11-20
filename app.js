@@ -92,7 +92,7 @@ Object.assign(A, {
   korbLeer: () => { KORB.length = 0; korbRender(); },
   korbPick: () => $('#anyIn').click(),
   korbZu: () => $('#korb')?.classList.toggle('zu'),
-  ablageWahl: async () => { await ablageWaehlen(); render(); },
+  ablageWahl: async () => { await ablageWaehlen(); render(); korbRender(); },
   ablageAlle: () => ablageAlle(),
   ablageAus: async () => { await ablageAus(); render(); toast('Ordner-Ablage ausgeschaltet.'); },
   more: d => { UI.more[d.v] = (UI.more[d.v] || 300) + 300; render(); },

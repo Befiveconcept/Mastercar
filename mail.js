@@ -125,7 +125,8 @@ async function fileToBelege(file) {
   if (!m) return [];
   const mail = { subject: m.subject || '', from: m.from || '', text: String(m.text || '').slice(0, 6000) };
   const att = (m.att || []).filter(a => /pdf|image\/(jpeg|png|webp|gif)/i.test(a.type) || /\.(pdf|jpe?g|png)$/i.test(a.name))
-    .filter(a => !(/image/.test(a.type) && a.blob.size < 15000)); // kleine Logos/Signaturbilder weglassen
+    .filter(a => !(/image/.test(a.type) && a.blob.size < 15000))   // kleine Logos/Signaturbilder weglassen
+    .filter(a => !/^image\d{3}\.(png|jpe?g|gif)$/i.test(a.name));   // eingebettete Outlook-Bilder (Signatur, Logo)
   if (!att.length) return [{ file, name, type: 'message/rfc822', mail }];
   return att.map(a => ({ file: new File([a.blob], a.name, { type: /\.pdf$/i.test(a.name) ? 'application/pdf' : a.type }), name: a.name, type: /\.pdf$/i.test(a.name) ? 'application/pdf' : a.type, mail }));
 }

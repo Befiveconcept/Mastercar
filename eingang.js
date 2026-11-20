@@ -16,11 +16,15 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
+{"ist_rechnung":true,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
 Zahlungsavis (Zahlungsankündigung, Lastschrift-Vorabinformation, Zahlungsbestätigung/Überweisungsavis eines Kunden oder Lieferanten): ist_rechnung=true, art="Zahlungsavis", lieferant = wer das Avis geschickt hat, nummer = Avis-/Belegnummer, datum = Datum des Avis, brutto=0, netto=0, mwst=0, avis_betrag = genannte Zahlungssumme, avis_rechnungen = alle genannten Rechnungsnummern (z. B. ["R26-0491","4711"]).
+mahnung: 0 = keine Mahnung. 1 = Zahlungserinnerung, 1. Mahnung oder Mail/Schreiben, dass eine Rechnung „noch offen“ ist. 2 = 2. Mahnung. 3 = 3./letzte Mahnung, Inkasso-Androhung. Gilt auch, wenn die Rechnung selbst nur angehängt ist und Mail oder Schreiben auf die offene Zahlung hinweist; dann die Felder der angehängten Rechnung trotzdem ausfüllen. mahnung_rechnungen = alle angemahnten Rechnungsnummern.
 eigene_rechnung=true, wenn Mastercar Bornheim / VE Sportmanagement selbst die Rechnung AUSGESTELLT hat (Kundenrechnung der Werkstatt, Nummer wie R26-0491); dann bei "lieferant" den Kunden eintragen.`, { files, tier: 'quick' });
 }
+
+const MLABEL = ['Mahnung', '2. Mahnung', '3. Mahnung'];
+const MSTUFE = { 'Mahnung': 1, '2. Mahnung': 2, '3. Mahnung': 3 };
 
 /* ---------- Sammelkorb: Dateien erst sammeln (mehrmals reinziehen/auswählen), dann mit einem Klick verarbeiten ---------- */
 const KORB = [];
@@ -39,6 +43,8 @@ function korbRender(auf) {
   el.innerHTML = `<header data-act="korbZu"><b>📥 Stapel: ${KORB.length} Datei${KORB.length === 1 ? '' : 'en'}</b><span class="small muted">${[doc ? doc + ' Beleg' + (doc === 1 ? '' : 'e') : '', tab ? tab + ' Excel/CSV' : ''].filter(Boolean).join(' · ')}</span><span class="sp"></span><span class="kz">▾</span></header>
     <ul>${KORB.map((f, i) => `<li><span>${korbIcon(f)}</span><span class="kn" title="${esc(f.name)}">${esc(f.name)}</span><small class="muted">${kb(f.size)}</small><button class="icon-btn" data-act="korbDel" data-i="${i}" aria-label="${esc(f.name)} entfernen">✕</button></li>`).join('')}</ul>
     <p class="small muted">Weitere Dateien einfach ins Fenster ziehen – sie kommen dazu.</p>
+    ${ablageMoeglich() ? (ABLAGE ? `<p class="small">📁 Umbenannte Belege kommen in: <b>${esc(ABLAGE.name)}</b></p>`
+      : `<div class="warn small">Noch kein OneDrive-Ordner gewählt – die Belege würden nur in der App liegen. <button class="btn sm" data-act="ablageWahl">📁 Ordner wählen</button></div>`) : ''}
     <div class="btnrow"><button class="btn primary" data-act="korbGo">✓ Alle ${KORB.length} verarbeiten</button><button class="btn" data-act="korbPick">＋ Dateien</button><button class="btn" data-act="korbLeer">Leeren</button></div>`;
 }
 async function korbVerarbeiten() {
@@ -55,7 +61,8 @@ async function eingangDrop(fileList) {
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
-  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [];
+  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set();
+  buildIdx();
   // Viele PDFs: immer 3 gleichzeitig von der KI lesen lassen
   let fertig = 0;
   busy(true, `${belege.length} Beleg${belege.length === 1 ? '' : 'e'}` + (DB.aiOn ? ' – KI liest …' : ' …'));
@@ -82,6 +89,40 @@ async function eingangDrop(fileList) {
     avise.push({ r: n, bezug });
     for (const r of bezug) { const z = `Zahlungsavis vom ${fmtD(datum)}${betrag != null ? ' (' + fmtE(betrag) + ')' : ''} liegt vor`; if (!(r.notiz || '').includes(z)) await DB.update('rechnungen', r.id, { notiz: [r.notiz, z].filter(Boolean).join(' · ') }); }
   };
+  // Mahnung / Zahlungserinnerung: angemahnte Rechnung(en) suchen, Status hochsetzen (Mahnung → 2. → 3. Mahnung),
+  // fehlende Rechnungs-PDF ergänzen; das Mahnschreiben selbst wird als eigener Eintrag (Art „Mahnung“) mit PDF abgelegt.
+  // Gibt true zurück, wenn nichts weiter zu tun ist; false = Rechnung noch nicht da → normal anlegen (mit Mahnstatus).
+  const mahnungVerarbeiten = async (x, b) => {
+    const stufe = Math.min(3, Math.max(1, parseInt(x.mahnung) || 1));
+    const nrn = [...new Set([...(Array.isArray(x.mahnung_rechnungen) ? x.mahnung_rechnungen : []), x.nummer].map(n => String(n || '').trim()).filter(Boolean))];
+    const ziele = S.rechnungen.filter(r => r.richtung === 'eingang' && r.art !== 'Mahnung' && r.art !== 'Zahlungsavis' && r.nummer && nrn.some(n => normNr(n) === normNr(r.nummer)));
+    const mailKey = b.mail || b;   // eine Mail mit mehreren Anhängen nur einmal als Mahnung zählen
+    const ersteMal = !mahnGesehen.has(mailKey); mahnGesehen.add(mailKey);
+    const datum = parseDate(b.mail && b.mail.date) || todayISO();
+    if (ersteMal) {
+      for (const r of ziele) {
+        const cur = MSTUFE[r.status_excel] || 0, neu = Math.min(3, Math.max(stufe, cur + 1)), label = MLABEL[neu - 1];
+        const bezahlt = istBezahltLaut(r.status_excel) || (IDX.zByR.get(r.id) || []).length;
+        const z = `${label} am ${fmtD(datum)} erhalten${bezahlt ? ' – war als bezahlt markiert, bitte prüfen' : ''}`;
+        await DB.update('rechnungen', r.id, { status_excel: label, bezahlt_extern: false, notiz: [r.notiz, z].filter(Boolean).join(' · ') });
+      }
+      // Mahnschreiben ablegen: bei Mail der Mailtext als PDF, sonst die Datei selbst (wenn sie keine Rechnung ist)
+      const doc = b.mail ? new File([textPdf(b.mail.subject || 'Mahnung', `Von: ${b.mail.from}\n\n${b.mail.text}`)], 'Mahnung.pdf', { type: 'application/pdf' }) : (!x.ist_rechnung || !x.brutto ? b.file : null);
+      const ziel = ziele[0];
+      const row = { richtung: 'eingang', art: 'Mahnung', partner: (ziel && ziel.partner) || String(x.lieferant || '').trim() || b.name, nummer: (ziel && ziel.nummer) || nrn[0] || null, datum, brutto: 0, netto: 0, mwst: 0,
+        beschreibung: `${MLABEL[stufe - 1]}${nrn.length ? ' für ' + nrn.join(', ') : ''}`, erledigt: true, status_excel: 'Bezahlt', quelle: DB.aiOn ? 'ki' : 'manuell', geprueft: false,
+        schluessel: 'MA:' + (await fileHash(doc || b.file)), notiz: ziele.length ? 'Betrifft: ' + ziele.map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(', ') : 'Angemahnte Rechnung ist noch nicht in der App' };
+      if (doc && !S.rechnungen.some(r => r.schluessel === row.schluessel)) { Object.assign(row, await belegSpeichern(row, doc)); if (ablage) abgelegt++; await DB.insert('rechnungen', [row]); }
+      mahnungen.push({ label: MLABEL[stufe - 1], partner: row.partner, nrn, ziele: ziele.map(r => S.rechnungen.find(y => y.id === r.id)) });
+    }
+    // Angehängte Rechnung: PDF an die vorhandene hängen – oder (noch nicht da) gleich als Rechnung mit Mahnstatus anlegen
+    if (x.ist_rechnung !== false && x.brutto && x.nummer) {
+      const r = ziele.find(r => normNr(r.nummer) === normNr(x.nummer));
+      if (r) { if (!r.datei) { await belegAnhaengen(r, b.file); if (ablage) abgelegt++; ergaenzt.push(r); } return true; }
+      x._mahnStatus = MLABEL[stufe - 1]; return false;
+    }
+    return true;
+  };
   const eins = async b => {
     try {
       // Mail ohne PDF-Anhang: aus dem Mailtext eine PDF machen, damit jede Buchung eine PDF hat
@@ -90,6 +131,7 @@ async function eingangDrop(fileList) {
       const eigen = ausgangAusText(b.name); if (eigen) return anhaengen(eigen, b);
       let x = null;
       if (DB.aiOn) { try { x = await kiBelegLesen(b); } catch (e) { fehler.push(b.name + ': ' + aiErr(e)); } }
+      if (x && +x.mahnung > 0 && await mahnungVerarbeiten(x, b)) return;
       if (x && x.ist_rechnung === false) { keine.push(b.name); return; }
       x = x || {};
       if (x.art === 'Zahlungsavis') return avisAnlegen(x, b);
@@ -113,7 +155,7 @@ async function eingangDrop(fileList) {
         unterkonto: UNTERKONTEN(x.kostenart).includes(x.unterkonto) ? x.unterkonto : null, art: x.gutschrift ? 'Gutschrift' : (['Rechnung', 'Korrektur', 'Vertrag', 'Beleg'].includes(x.art) ? x.art : 'Rechnung'), iban: String(x.iban || '').replace(/\s/g, '').toUpperCase() || null,
         beschreibung: String(x.beschreibung || '').trim() || (b.mail ? b.mail.subject : null), zahlart: x.bezahlung === 'lastschrift' ? 'bank' : null,
         datei: null, dateiname: b.name, quelle: DB.aiOn && x.brutto != null ? 'ki' : 'manuell', geprueft: false, schluessel,
-        status_excel: x.bezahlung === 'lastschrift' ? 'Abbuchung offen' : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : 'Offen',
+        status_excel: x._mahnStatus ? x._mahnStatus : x.bezahlung === 'lastschrift' ? 'Abbuchung offen' : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : 'Offen',
         notiz: x.bezahlung === 'lastschrift' ? 'Laut Beleg per Lastschrift' : x.bezahlung === 'bereits_bezahlt' ? 'Laut Beleg bereits bezahlt' : null };
       // Datei nach Schema benennen: VE Sport_Lieferant_Art_Nummer_Datum.pdf – in der Cloud und (falls gewählt) im Ablage-Ordner
       Object.assign(row, await belegSpeichern(row, b.file)); if (ablage) abgelegt++;
@@ -134,6 +176,8 @@ async function eingangDrop(fileList) {
     <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
     ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${mahnungen.length ? `<p><b>${mahnungen.length}</b> Mahnung${mahnungen.length === 1 ? '' : 'en'} erkannt:</p><div class="tw"><table class="tb click"><tbody>${mahnungen.map(m => m.ziele.length ? m.ziele.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(m.label)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>→ Status jetzt <b>${esc(r.status_excel)}</b></td></tr>`).join('')
+      : `<tr><td>${esc(m.label)}</td><td>${esc(m.partner)}</td><td class="mono">${esc(m.nrn.join(', '))}</td><td></td><td class="muted">Rechnung war noch nicht in der App${neu.some(r => m.nrn.some(n => normNr(n) === normNr(r.nummer || ''))) ? ' – jetzt mit Mahnstatus angelegt' : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${avise.length ? `<p><b>${avise.length}</b> Zahlungsavis abgelegt:</p><div class="tw"><table class="tb click"><tbody>${avise.map(({ r, bezug }) => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.beschreibung || '')}</td><td class="small">${bezug.length ? '→ ' + bezug.map(x => esc(x.nummer || '')).join(', ') : '<span class="muted">keine passende Rechnung gefunden</span>'}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${doppelt.length ? `<div class="warn">Schon vorhanden, nicht nochmal angelegt: ${doppelt.map(esc).join(', ')}</div>` : ''}
     ${keine.length ? `<div class="note">Keine Rechnung (übersprungen): ${keine.map(esc).join(', ')}</div>` : ''}

@@ -146,13 +146,15 @@ function startHero() {
 
 /* ---------- Listen ---------- */
 const FILT_R = [['alle', 'Alle'], ['offen', 'Offen'], ['ueberfaellig', 'Überfällig'], ['probleme', 'Zu viel / zu wenig / doppelt'], ['bezahlt', 'Bezahlt'], ['pruefen', 'Zu prüfen']];
+const DOK_ARTEN = ['Zahlungsavis', 'Mahnung'];   // reine Dokumente (Betrag 0), keine Buchung
 function filterR(list, f) {
   if (f === 'alle') return list;
   if (f === 'offen') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key));
   if (f === 'probleme') return list.filter(x => ['ueber', 'doppelt', 'teil'].includes(x.st.key));
   if (f === 'bezahlt') return list.filter(x => ['bezahlt', 'erledigt', 'extern', 'storno'].includes(x.st.key));
   if (f === 'pruefen') return list.filter(x => !x.r.geprueft);
-  if (String(f).startsWith('s:')) return list.filter(x => x.st.label === f.slice(2));
+  if (String(f).startsWith('s:')) return list.filter(x => x.st.label === f.slice(2) && !DOK_ARTEN.includes(x.r.art));
+  if (String(f).startsWith('art:')) return list.filter(x => x.r.art === f.slice(4));
   return list.filter(x => x.st.key === f);
 }
 const textOf = r => [r.nummer, r.partner, r.kundennr, r.kennzeichen, r.beschreibung, r.kostenart, r.unterkonto, r.art, r.notiz, r.brutto, fmtE(r.brutto), fmtD(r.datum)].join(' ').toLowerCase();
@@ -227,9 +229,10 @@ function viewRechnungen(dir) {
   const view = dir, range = periodRange(UI.period);
   let list = S.rechnungen.filter(r => r.richtung === dir && (UI.period === 'alle' || inP(r.datum, range) || !['bezahlt', 'erledigt', 'extern', 'storno'].includes(rStatus(r).key))).map(r => ({ r, st: rStatus(r) }));
   // Filter: „Alle“, „Offen“ (alles nicht Bezahlte), dann jeder Status aus der Liste mit Anzahl, dazu überfällig/Abgleich-Probleme/ungeprüft
-  const cnt = {}; list.forEach(x => cnt[x.st.label] = (cnt[x.st.label] || 0) + 1);
+  const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
   const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
-    [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']]);
+    [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']],
+    dir === 'eingang' ? [['art:Zahlungsavis', '📨 Zahlungsavis · ' + (cnt['art:Zahlungsavis'] || 0)], ['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)]] : []);
   list = filterR(list, UI.filt[view]);
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
   list.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '') || String(b.r.nummer || '').localeCompare(String(a.r.nummer || ''), 'de', { numeric: true }));
