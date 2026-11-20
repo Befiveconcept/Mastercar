@@ -16,6 +16,61 @@ function belegName(r, ext = 'pdf') {
   return teile.join('_') + '.' + ext;
 }
 
+/* Beleg speichern: Cloud-Speicher + (nur Eingangsrechnungen) Ablage-Ordner. Gibt {datei, dateiname} zurück. */
+async function belegSpeichern(r, file) {
+  const name = belegName(r, dateiEndung(file.name, file.type)), dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
+  const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
+  await DB.upload(datei, file);
+  let dateiname = name;
+  if (dir === 'eingang') { const ord = await ablageOrdner(false); if (ord) { try { dateiname = await ablageSchreiben(ord, name, file); } catch (e) { console.warn(e); } } }
+  return { datei, dateiname };
+}
+// Datei (PDF, Foto oder Mail) an eine bestimmte Rechnung hängen – Mail: erster PDF-Anhang, sonst Mailtext als PDF
+async function belegZuRechnung(id, file) {
+  const r = S.rechnungen.find(x => x.id === id); if (!r || !file) return;
+  busy(true, 'PDF wird gespeichert …');
+  try {
+    const bs = await fileToBelege(file); let b = bs.find(x => /pdf/.test(x.type)) || bs[0]; if (!b) return toast('Keine PDF gefunden.');
+    let f = b.file; if (b.type === 'message/rfc822' && b.mail) f = new File([textPdf(b.mail.subject || 'E-Mail', `Von: ${b.mail.from}\n\n${b.mail.text}`)], 'Mail.pdf', { type: 'application/pdf' });
+    await belegAnhaengen(r, f); toast('PDF hinterlegt: ' + S.rechnungen.find(x => x.id === id).dateiname);
+  } catch (e) { console.error(e); toast('PDF nicht gespeichert: ' + (e.message || e)); }
+  finally { busy(false); }
+  render(); rechnungDetail(id);
+}
+async function belegAnhaengen(r, file) { const p = await belegSpeichern(r, file); await DB.update('rechnungen', r.id, p); return p; }
+
+/* Mail ohne PDF-Anhang → einfache PDF aus Betreff, Absender und Mailtext (damit jede Buchung eine PDF hat) */
+function textPdf(titel, zeilenText) {
+  const lat = s => String(s || '').normalize('NFC').replace(/[‘’]/g, "'").replace(/[“”„]/g, '"').replace(/[–—]/g, '-').replace(/€/g, 'EUR').replace(/[^\n\x20-\x7E\xA0-\xFF]/g, ' ');
+  const wrap = (s, n) => s.split('\n').flatMap(l => { const out = []; l = l.replace(/\s+$/, ''); while (l.length > n) { let i = l.lastIndexOf(' ', n); if (i < 20) i = n; out.push(l.slice(0, i)); l = l.slice(i).replace(/^ /, ''); } out.push(l); return out; });
+  const lines = [...wrap(lat(titel), 70).map(l => ['B', l]), ['', ''], ...wrap(lat(zeilenText).replace(/\n{3,}/g, '\n\n'), 95).map(l => ['', l])];
+  const esc2 = s => s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const pages = []; for (let i = 0; i < lines.length; i += 62) pages.push(lines.slice(i, i + 62));
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'];
+  const kids = [];
+  pages.forEach(pg => {
+    let y = 800; const c = ['BT'];
+    pg.forEach(([f, t]) => { c.push(`/${f === 'B' ? 'F2 12' : 'F1 9.5'} Tf 1 0 0 1 40 ${y} Tm (${esc2(t)}) Tj`); y -= 12.5; });
+    c.push('ET'); const s = c.join('\n');
+    objs.push(`<< /Length ${s.length} >>\nstream\n${s}\nendstream`);
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${objs.length} 0 R >>`);
+    kids.push(objs.length + ' 0 R');
+  });
+  objs[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+  let pdf = '%PDF-1.4\n'; const off = [];
+  objs.forEach((o, i) => { off.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const x = pdf.length; pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + off.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('') + `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF`;
+  const bytes = new Uint8Array(pdf.length); for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 255;
+  return new Blob([bytes], { type: 'application/pdf' });
+}
+
+/* Eigene Rechnungsnummer (R26-0491, r26/491 …) in Dateiname oder Text finden → Ausgangsrechnung der App */
+function ausgangAusText(s) {
+  const re = /\bR\s?(\d{2})\s?[-_/ .]?\s?(\d{1,4})\b/gi; let m;
+  while ((m = re.exec(String(s || '')))) { const nr = `R${m[1]}-${m[2].padStart(4, '0')}`, r = S.rechnungen.find(x => x.richtung === 'ausgang' && normNr(x.nummer || '') === normNr(nr)); if (r) return r; }
+  return null;
+}
+
 /* Ordner-Zugriff merken (IndexedDB) */
 const ablIdb = () => new Promise((res, rej) => { const q = indexedDB.open('mastercar-ablage', 1); q.onupgradeneeded = () => q.result.createObjectStore('h'); q.onsuccess = () => res(q.result); q.onerror = rej; });
 async function ablIdbGet(k) { const d = await ablIdb(); return new Promise((res, rej) => { const q = d.transaction('h').objectStore('h').get(k); q.onsuccess = () => res(q.result); q.onerror = rej; }); }

@@ -108,7 +108,13 @@ let dragN = 0;
 document.addEventListener('dragenter', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { dragN++; $('#veil')?.classList.add('on'); } });
 document.addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('#veil')?.classList.remove('on'); } });
 document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('#veil')?.classList.remove('on'); if (e.dataTransfer.files.length && S.user) eingangDrop(e.dataTransfer.files); });
+document.addEventListener('drop', e => {
+  e.preventDefault(); dragN = 0; $('#veil')?.classList.remove('on'); if (!e.dataTransfer.files.length || !S.user) return;
+  // Rechnung geöffnet und genau ein Beleg reingezogen → an diese Rechnung hängen
+  const rid = $('#sheet')?.dataset.rid, fs = [...e.dataTransfer.files];
+  if (rid && fs.length === 1 && !isTable(fs[0])) return belegZuRechnung(rid, fs[0]);
+  eingangDrop(e.dataTransfer.files);
+});
 
 /* ---------- CSV-Export (für Steuerberater / Excel) ---------- */
 function exportCsv(v) {
