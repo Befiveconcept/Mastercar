@@ -1,0 +1,12 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+~$*
+# Echte Kontoauszüge/Exporte nie ins Repository legen
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.msg
+*.eml
