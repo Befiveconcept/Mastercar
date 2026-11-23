@@ -3,7 +3,7 @@ const UI = { view: 'start', period: 'jahr', filt: { ausgang: 'alle', eingang: 'a
 const NAV = [
   ['start', 'Übersicht', '◧'], ['todos', 'To-Dos', '☑'], ['ausgang', 'Rechnungsausgang', '↗'], ['eingang', 'Rechnungseingang', '↘'],
   ['bank', 'Bank', '⇄'], ['sumup', 'SumUp / EC', '▭'], ['kasse', 'Kassenbuch', '€'], ['hebe', 'Hebebühne', '⇡'],
-  ['avis', 'Zahlungsavis', '✉'], ['guv', 'GuV', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
+  ['avis', 'Zahlungsavis', '✉'], ['guv', 'Auswertungen', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
 ];
 const PERIODS = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['quartal', 'Dieses Quartal'], ['jahr', 'Dieses Jahr'], ['12m', 'Letzte 12 Monate'], ['alle', 'Alles (ab 2026)']];
 function periodRange(p) {
@@ -97,7 +97,7 @@ function viewStart() {
   <section class="kpi">
     <div class="k hi"><div class="kv">${fmtE(K.einnahmen)}</div><div class="kl">Umsatz netto (Rechnungsausgang)</div></div>
     <div class="k"><div class="kv">${fmtE(K.ausgaben)}</div><div class="kl">Kosten netto (Rechnungseingang)</div></div>
-    <button class="k" data-act="go" data-v="guv"><div class="kv ${K.ergebnis < 0 ? 'neg' : ''}">${fmtE(K.ergebnis)}</div><div class="kl">Ergebnis netto → GuV</div></button>
+    <button class="k" data-act="go" data-v="guv" data-t="guv"><div class="kv ${K.ergebnis < 0 ? 'neg' : ''}">${fmtE(K.ergebnis)}</div><div class="kl">Ergebnis netto → GuV</div></button>
     <button class="k" data-act="go" data-v="ausgang" data-f="offen"><div class="kv">${fmtE(sum(K.offenA, x => x.st.offen))}</div><div class="kl">Offene Kundenrechnungen · ${K.offenA.length}</div></button>
     <button class="k ${K.ueberA.length ? 'alarm' : ''}" data-act="go" data-v="ausgang" data-f="ueberfaellig"><div class="kv">${fmtE(sum(K.ueberA, x => x.st.offen))}</div><div class="kl">davon überfällig · ${K.ueberA.length}</div></button>
     <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen · ${K.offenE.length}</div></button>

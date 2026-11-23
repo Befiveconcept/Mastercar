@@ -81,8 +81,7 @@ const guvJahre = () => { const s = new Set(S.rechnungen.map(r => (r.datum || '')
 
 // Finanzamt-Zahlungen des gewählten Jahres ohne erfassten Lohnsteuer-Anteil
 const lstOffen = () => S.rechnungen.filter(r => r.richtung === 'eingang' && istFinanzamt(r) && (+r.brutto || 0) > 0 && !(+r.lohn) && (r.datum || '').startsWith(UI.guvJahr || '')).length;
-function viewGuv() {
-  const jahre = guvJahre(); UI.guvJahr = UI.guvJahr && jahre.includes(UI.guvJahr) ? UI.guvJahr : (jahre.find(j => S.rechnungen.some(r => (r.datum || '').startsWith(j))) || jahre[0]);
+function viewGuv() {   // Teil der Rubrik „Auswertungen“ (Jahr wählt viewAusw)
   const { lines } = guvRechnen(UI.guvJahr, !!UI.guvOhne);
   const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
   const cur = todayISO().slice(0, 4) === UI.guvJahr ? +todayISO().slice(5, 7) : 12;
@@ -94,14 +93,12 @@ function viewGuv() {
     const gesamt = l.kum ? l.w[cur - 1] : tot(l.w);
     return `<tr class="${cls}"><th>${esc(l.label)}${l.konto ? `<small>${esc(l.konto)}</small>` : ''}</th>${l.w.map((v, m) => `<td class="num ${v < -0.005 ? 'neg' : ''} ${m >= cur ? 'fut' : ''}" ${click && Math.abs(v) > 0.005 ? `data-act="guvZelle" data-k="${esc(l.key)}" data-m="${m}" data-nur="${l.nur ? 1 : ''}"` : ''}>${n(v)}</td>`).join('')}<td class="num g-ges ${gesamt < -0.005 ? 'neg' : ''}">${n(gesamt)}</td></tr>`;
   };
-  return `
-  <div class="toolbar"><h1>GuV ${esc(UI.guvJahr)}</h1><span class="sp"></span>
-    <select class="inp" data-chg="guvJahr">${jahre.map(j => `<option ${j === UI.guvJahr ? 'selected' : ''}>${j}</option>`).join('')}</select>
+  return { csv: false, knoepfe: `
     <label class="chk inline"><input type="checkbox" data-chg="guvOhne" ${UI.guvOhne ? 'checked' : ''}> Zahlungen ohne Beleg (Bank/Kasse) mitrechnen</label>
     ${lstOffen() ? `<button class="btn primary" data-act="lstErfassen" title="Lohnsteuer-Anteil der Finanzamt-Zahlungen eintragen">Lohnsteuer erfassen <span class="cnt">${lstOffen()}</span></button>` : `<button class="btn" data-act="lstErfassen">Lohnsteuer erfassen</button>`}
-    <button class="btn" data-act="guvCsv">CSV</button></div>
+    <button class="btn" data-act="guvCsv">CSV</button>`, body: `
   <p class="small muted">Automatisch aus Rechnungsausgang (netto) und Rechnungseingang (netto, nach Kategorie) nach Rechnungsdatum. Durchlaufende Posten (z. B. TÜV) und Zahlungen ans Finanzamt (Umsatzsteuer, Lohnsteuer) sind nicht enthalten – die stehen unten bei „Umsatzsteuer“. Den Lohnsteuer-Anteil dieser Zahlungen über „Lohnsteuer erfassen“ eintragen – er zählt dann als Personalkosten. Zahl anklicken = Belege dahinter. Vorläufige Auswertung – ersetzt nicht die BWA vom Steuerberater.</p>
-  <div class="tw guv"><table class="tb gtab"><thead><tr><th>Position</th>${MON.map(m => `<th class="num">${m}</th>`).join('')}<th class="num">Gesamt</th></tr></thead><tbody>${lines.map(row).join('')}</tbody></table></div>`;
+  <div class="tw guv"><table class="tb gtab"><thead><tr><th>Position</th>${MON.map(m => `<th class="num">${m}</th>`).join('')}<th class="num">Gesamt</th></tr></thead><tbody>${lines.map(row).join('')}</tbody></table></div>` };
 }
 function guvZelle(key, m, nur) {
   const { Z } = guvRechnen(UI.guvJahr, !!UI.guvOhne);

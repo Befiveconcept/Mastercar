@@ -97,7 +97,7 @@ function aicChart(c) {
   if (c.type === 'pie') return head + hbars(L.map((l, i) => [l, SR[0].data[i]]).sort((a, b) => b[1] - a[1]), sum(SR[0].data));
   return head + barChart(L, SR, { h: 200 });
 }
-const OPEN_LABEL = { start: 'Übersicht', todos: 'To-Dos', ausgang: 'Rechnungsausgang', eingang: 'Rechnungseingang', bank: 'Bank', sumup: 'SumUp', kasse: 'Kassenbuch', hebe: 'Hebebühne', guv: 'GuV', abgleich: 'Abgleich & Probleme' };
+const OPEN_LABEL = { start: 'Übersicht', todos: 'To-Dos', ausgang: 'Rechnungsausgang', eingang: 'Rechnungseingang', bank: 'Bank', sumup: 'SumUp', kasse: 'Kassenbuch', hebe: 'Hebebühne', guv: 'Auswertungen (GuV, BWA, Umsatzsteuer)', abgleich: 'Abgleich & Probleme' };
 function aicOpenLabel(o) { if (!o) return ''; if (o.id) { const r = S.rechnungen.find(x => x.id === o.id); if (r) return 'Rechnung ' + (r.nummer || r.partner) + ' öffnen'; if (S.bank.some(x => x.id === o.id)) return 'Bankumsatz öffnen'; if (S.sumup.some(x => x.id === o.id)) return 'EC-Zahlung öffnen'; if (S.kasse.some(x => x.id === o.id)) return 'Kassenbuch-Eintrag öffnen'; if (S.todos.some(x => x.id === o.id)) return 'To-Do öffnen'; } return OPEN_LABEL[o.view] ? OPEN_LABEL[o.view] + ' öffnen' : ''; }
 function aicOpen(o) {
   if (!o) return;

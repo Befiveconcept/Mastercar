@@ -1,7 +1,7 @@
 /* Mastercar Finanzen · App-Rahmen: Anmeldung, Navigation, Aktionen */
 const A = {};
 const START_HASH = location.hash;   // vor der Supabase-Anmeldung merken (die Bibliothek leert die Adresse beim Einlösen des Links)
-const VIEWS = { avis: () => viewAvis(), start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewGuv, abgleich: viewAbgleich, einst: viewEinst };
+const VIEWS = { avis: () => viewAvis(), start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewAusw, abgleich: viewAbgleich, einst: viewEinst };
 let OMNI = null;   // die Suchleiste bleibt dasselbe Element und wird bei jedem Neuzeichnen unter die Überschrift gesetzt
 
 /* Hell/Dunkel: Schieberegler (Mond links = dunkel, Sonne rechts = hell), Wahl wird im Browser gemerkt */
@@ -70,7 +70,7 @@ function twEnhance(root) {
   document.body.classList.toggle('tw-max-on', false);
   $$('.tw', root).forEach((tw, i) => {
     if (!tw.querySelector('thead') || tw.closest('.korb')) return;
-    const key = UI.view + ':' + i; tw.dataset.twk = key;
+    const key = (UI.view === 'guv' && UI.auswTab && UI.auswTab !== 'guv' ? 'ausw-' + UI.auswTab : UI.view) + ':' + i; tw.dataset.twk = key;   // jede Auswertung merkt sich ihre Spalten selbst
     const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
       <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="sp" title="Spalten ein- und ausblenden">☰ Spalten</button><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
@@ -199,7 +199,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && TW.max && 
 /* ---------- Aktionen (data-act) ---------- */
 Object.assign(A, {
   menu: () => { const on = document.body.classList.toggle('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', on); },
-  go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
+  go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; if (d.t) UI.auswTab = d.t; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
@@ -241,6 +241,7 @@ Object.assign(A, {
   hebeKW: d => { const [y, w] = (UI.hebeKW || kwKey(todayISO())).split('-').map(Number); UI.hebeKW = +d.d === 0 ? kwKey(todayISO()) : kwKey(addDays(isoWeekMonday(y, w), 7 * +d.d)); render(); },
   hebeGo: d => { UI.hebeKW = d.k; render(); window.scrollTo(0, 0); },
   guvZelle: d => guvZelle(d.k, +d.m, !!d.nur), guvCsv: () => guvCsv(), lstErfassen: () => lstErfassen(),
+  auswTab: d => { UI.auswTab = d.t; render(); window.scrollTo(0, 0); }, auswZelle: d => auswZelle(d.k), auswCsv: () => auswCsv(),
   pick: d => { const i = $('#tblIn'); i.dataset.t = d.t; i.click(); },
   pickBeleg: () => $('#belegIn').click(),
   neuR: d => rechnungForm(d.dir),
@@ -279,6 +280,9 @@ document.addEventListener('change', e => {
   }
   if (c === 'guvJahr') { UI.guvJahr = e.target.value; render(); }
   if (c === 'guvOhne') { UI.guvOhne = e.target.checked; render(); }
+  if (c === 'bwaMon') { UI.bwaMon = +e.target.value; render(); }
+  if (c === 'ustPer') { UI.ustPer = e.target.value; render(); }
+  if (c === 'ustIst') { UI.ustIst = !!e.target.value; render(); }
   if (c === 'todoWer') { UI.todoWer = e.target.value; render(); }
   if (c === 'hebeMa') { UI.hebeMa = e.target.value; render(); }
   if (c === 'stundensatz') { DB.setSetting('stundensatz', Math.max(0, parseNum(e.target.value) || 0)).then(render); }
