@@ -131,6 +131,11 @@ const DB = (() => {
     const { error } = await sb.storage.from('belege').upload(path, blob, { contentType: blob.type || 'application/octet-stream', upsert: false });
     if (error) throw error; return path;
   }
+  async function removeFile(path) {
+    if (!path) return;
+    if (!cloud) { const d = await idb(); return new Promise(res => { const tx = d.transaction('f', 'readwrite'); tx.objectStore('f').delete(path); tx.oncomplete = res; tx.onerror = res; }); }
+    const { error } = await sb.storage.from('belege').remove([path]); if (error) throw error;
+  }
   async function fileUrl(path) {
     if (!path) return null;
     if (!cloud) { const b = await idbGet(path); return b ? URL.createObjectURL(b) : null; }
@@ -156,7 +161,7 @@ const DB = (() => {
   // Demo: alles löschen
   function resetLocal() { if (!cloud) { localStorage.removeItem(LS); TABLES.forEach(t => S[t] = []); S.einstellungen = {}; } }
 
-  return { cloud, aiOn, init, signIn, signOut, resetPw, setPw, isStaff, loadAll, insert, update, remove, setSetting, upload, fileUrl, ai, aiJson, resetLocal, saveLocal, get sb() { return sb; } };
+  return { cloud, aiOn, init, signIn, signOut, resetPw, setPw, isStaff, loadAll, insert, update, remove, setSetting, upload, fileUrl, removeFile, ai, aiJson, resetLocal, saveLocal, get sb() { return sb; } };
 })();
 
 const AI_ERR = { offline: 'Die KI ist nur in der Online-Version (mit Supabase) verfügbar.', rate_limited: 'Die KI ist gerade ausgelastet – bitte gleich nochmal.', not_allowed: 'Kein Zugriff auf die KI (E-Mail nicht im Team?).', not_signed_in: 'Bitte neu anmelden.', bad_json: 'Die KI-Antwort war unvollständig – bitte nochmal versuchen.', refused: 'Die KI hat die Anfrage abgelehnt.', api_key_invalid: 'Anthropic-API-Schlüssel in Supabase fehlt oder ist ungültig.' };

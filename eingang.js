@@ -110,13 +110,18 @@ async function eingangDrop(fileList) {
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
-  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [], ausgangNeu = [];
+  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [], ausgangNeu = [], umbenannt = [];
   buildIdx();
   // Viele PDFs: immer 3 gleichzeitig von der KI lesen lassen
   let fertig = 0;
   busy(true, `${belege.length} Beleg${belege.length === 1 ? '' : 'e'}` + (DB.aiOn ? ' – KI liest …' : ' …'));
   // PDF an eine schon vorhandene Rechnung (z. B. aus der Excel) hängen statt sie doppelt anzulegen
   const anhaengen = async (r, b) => {
+    // Ausgangsrechnung mit älterer, umbenannter PDF: das Original ersetzt sie (Name wie im Original, alte Datei wird entfernt)
+    if (r.datei && r.richtung === 'ausgang' && nameTeil(b.name, 150) !== r.dateiname) {
+      const alt = r.datei; await belegAnhaengen(r, b.file); await DB.removeFile(alt).catch(e => console.warn(e));
+      umbenannt.push(S.rechnungen.find(x => x.id === r.id) || r); return;
+    }
     if (r.datei) { doppelt.push(b.name + (r.nummer ? ' (Nr. ' + r.nummer + ', hat schon eine PDF)' : '')); return; }
     await belegAnhaengen(r, b.file); ergaenzt.push(r);
   };
@@ -233,6 +238,7 @@ async function eingangDrop(fileList) {
     <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
     ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${umbenannt.length ? `<p><b>${umbenannt.length}</b> Ausgangsrechnung${umbenannt.length === 1 ? '' : 'en'}: PDF durch das Original ersetzt – Name jetzt wie im Original (in der App, im Ordner und ab der nächsten Sicherung):</p><div class="tw"><table class="tb click"><tbody>${umbenannt.slice(0, 50).map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '')}</td><td>${esc(r.partner || '')}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>${umbenannt.length > 50 ? `<p class="small muted">… und ${umbenannt.length - 50} weitere</p>` : ''}` : ''}
     ${ausgangNeu.length ? `<p><b>${ausgangNeu.length}</b> Ausgangsrechnung${ausgangNeu.length === 1 ? '' : 'en'} aus der PDF angelegt (Dateiname bleibt wie er ist) – bitte kurz prüfen:</p><div class="tw"><table class="tb click"><tbody>${ausgangNeu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer)}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${auszuege.length ? `<p><b>${auszuege.length}</b> ${auszuege.length === 1 ? 'Kontoauszug' : 'Kontoauszüge'} eingelesen und mit den Ein- und Ausgaben abgeglichen${res.n ? ` – <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} automatisch zugeordnet` : ''}:</p><div class="tw"><table class="tb click"><tbody>${auszuege.map(x => `<tr><td>🏦 ${esc(x.name)}</td><td>${x.von ? fmtD(x.von) + ' – ' + fmtD(x.bis) : ''}</td><td class="num">${x.n} Buchungen</td><td>${x.neu} neu${x.n - x.neu ? ', ' + (x.n - x.neu) + ' schon da' : ''}</td><td>${x.probe === 'ok' ? badge({ cls: 'st-ok', label: '✓ Saldo stimmt' }) : x.probe ? badge({ cls: 'st-warn', label: x.probe }) : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${verknuepft.length ? `<p><b>${verknuepft.length}</b> Gutschrift${verknuepft.length === 1 ? '' : 'en'}/Korrektur${verknuepft.length === 1 ? '' : 'en'} direkt mit der Rechnung verknüpft:</p><div class="tw"><table class="tb click"><tbody>${verknuepft.map(({ g, r }) => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(g.art || 'Gutschrift')} ${esc(g.nummer || '')}</td><td class="num">${fmtE(g.brutto)}</td><td>→ ${esc(r.nummer || '')} ${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>noch offen ${fmtE(Math.max(0, rStatus(r).offen))}</td></tr>`).join('')}</tbody></table></div>` : ''}

@@ -226,6 +226,16 @@ button.k:hover{border-color:var(--y)}
 .tw.scroll[data-view=kasse] .tb thead tr:first-child th.stick{background:#4472C4}.tw.scroll[data-view=kasse] .tb tr.frow th.stick{background:#D9E1F2}
 .tw.scroll[data-view=ausgang] .tb thead tr:first-child th.stick{background:#C0C0C0}
 .tw.scroll::-webkit-scrollbar-track{background:#F0F0F0}.tw.scroll::-webkit-scrollbar-thumb{border-color:#F0F0F0}
+/* Spalte „Verknüpft“: Bankbuchung gefunden = grün, laut Liste bezahlt aber nicht gefunden = gelb, keine = grau */
+.tw.scroll .tb td.x-vk-bank{background:#E2EFDA;color:#375623}.tw.scroll .tb td.x-vk-warn{background:#FFF2CC;color:#7F6000}.tw.scroll .tb td.x-vk-keine{color:#808080}
+/* Spalten ausblenden */
+.tb .col-aus{display:none}
+.col-x{position:absolute;top:3px;right:10px;font-size:11px;line-height:1;padding:2px 3px;border-radius:3px;cursor:pointer;opacity:0;color:inherit;background:rgba(255,255,255,.7)}
+.tb th:hover .col-x{opacity:.8}.col-x:hover{opacity:1!important;background:#C00000;color:#fff}
+.tb tr.frow .col-x{display:none}
+@media (hover:none){.col-x{opacity:.5}}
+.sp-menu{position:fixed;z-index:120;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.35);padding:12px 14px;display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto;min-width:220px}
+.sp-menu .chk.inline{font-size:14px;padding:3px 0}
 /* Spaltenbreite ziehen */
 .col-gr{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:3;touch-action:none}
 .col-gr::after{content:"";position:absolute;left:4px;top:25%;height:50%;width:1px;background:var(--line)}

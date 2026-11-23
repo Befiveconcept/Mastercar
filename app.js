@@ -73,7 +73,7 @@ function twEnhance(root) {
     const key = UI.view + ':' + i; tw.dataset.twk = key;
     const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
-      <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
+      <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="sp" title="Spalten ein- und ausblenden">☰ Spalten</button><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
     box.appendChild(tw); tw.classList.add('scroll');
     twSpalten(tw, key, box);
     if (TW.max === key) { box.classList.add('max'); document.body.classList.add('tw-max-on'); }
@@ -86,7 +86,8 @@ function twEnhance(root) {
       const a = e.target.closest('[data-tw]')?.dataset.tw; if (!a) return;
       if (a === 'l' || a === 'r') { tw.scrollLeft += (a === 'l' ? -1 : 1) * Math.max(200, tw.clientWidth * 0.7); TW.pos[key] = [tw.scrollLeft, tw.scrollTop]; twPfeile(box, tw); }
       if (a === 'max') { TW.max = TW.max === key ? null : key; render(); }
-      if (a === 'reset') { delete SPALTEN[key]; spaltenSpeichern(); delete BREITEN[key]; breitenSpeichern(); render(); }
+      if (a === 'reset') { delete SPALTEN[key]; spaltenSpeichern(); delete BREITEN[key]; breitenSpeichern(); delete SP_AUS[key]; spAusSpeichern(); render(); }
+      if (a === 'sp') { e.stopPropagation(); spaltenMenue(e.target.closest('[data-tw]'), tw, key); }
     });
     // Mit gedrückter Maus seitlich ziehen (Klick ohne Bewegung öffnet weiter die Zeile)
     tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a,thead')) return; TW.drag = { tw, sx: e.clientX, sl: tw.scrollLeft, bewegt: false }; });
@@ -112,7 +113,18 @@ function twSpalten(tw, key, box) {
   const ks = [...h.children].map(th => th.dataset.k || '');
   tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length !== n) return; [...tr.children].forEach((c, i) => { if (ks[i]) c.classList.add('c-' + ks[i]); }); });
   twBreiten(tw, key, h);
-  if (!want && BREITEN[key] && Object.keys(BREITEN[key]).length) box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spalten (Reihenfolge und Breite)">↺ Spalten</button>');
+  // Ausgeblendete Spalten (pro Tabelle gemerkt) + „✕“ in der Überschrift zum Ausblenden
+  const aus = SP_AUS[key] || [];
+  [...h.children].forEach((th, i) => {
+    if (!ks[i]) return;
+    if (aus.includes(ks[i])) tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length === n) tr.children[i].classList.add('col-aus'); });
+    const x = document.createElement('span'); x.className = 'col-x'; x.textContent = '✕'; x.title = 'Spalte ausblenden (zurückholen über „☰ Spalten“)';
+    x.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); SP_AUS[key] = [...new Set([...(SP_AUS[key] || []), ks[i]])]; spAusSpeichern(); render(); });
+    x.addEventListener('mousedown', e => e.stopPropagation());
+    th.appendChild(x);
+  });
+  if (aus.length) box.querySelector('[data-tw=sp]').innerHTML = `☰ Spalten <span class="cnt">${aus.length} aus</span>`;
+  if (!want && ((BREITEN[key] && Object.keys(BREITEN[key]).length) || aus.length)) box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spalten (Reihenfolge und Breite)">↺ Spalten</button>');
   const hs = [...h.children], ni = hs.findIndex(th => th.dataset.name);
   if (ni >= 0) tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length === n) tr.children[ni].classList.add('stick'); });
   hs.forEach(th => {
@@ -129,6 +141,22 @@ function twSpalten(tw, key, box) {
       SPALTEN[key] = cur; spaltenSpeichern(); render();
     });
   });
+}
+/* Spalten ein-/ausblenden (pro Tabelle und Browser gemerkt) */
+const SP_AUS = (() => { try { return JSON.parse(localStorage.getItem('mc-spalten-aus')) || {}; } catch (e) { return {}; } })();
+function spAusSpeichern() { try { localStorage.setItem('mc-spalten-aus', JSON.stringify(SP_AUS)); } catch (e) { } }
+function spaltenMenue(btn, tw, key) {
+  $('.sp-menu')?.remove();
+  const h = tw.querySelector('thead tr'); if (!h) return;
+  const aus = SP_AUS[key] || [];
+  const m = document.createElement('div'); m.className = 'sp-menu';
+  m.innerHTML = `<b>Spalten anzeigen</b>${[...h.children].filter(th => th.dataset.k).map(th => `<label class="chk inline"><input type="checkbox" data-k="${th.dataset.k}" ${aus.includes(th.dataset.k) ? '' : 'checked'}> ${esc((th.childNodes[0]?.textContent || th.dataset.k).trim() || th.dataset.k)}</label>`).join('')}
+    <div class="btnrow"><button class="btn sm" data-m="alle">Alle zeigen</button><button class="btn sm primary" data-m="ok">Fertig</button></div>`;
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect(); m.style.top = Math.min(r.bottom + 6, innerHeight - m.offsetHeight - 10) + 'px'; m.style.left = Math.max(10, Math.min(r.left, innerWidth - m.offsetWidth - 10)) + 'px';
+  m.addEventListener('change', e => { const k = e.target.dataset.k; if (!k) return; const s = new Set(SP_AUS[key] || []); e.target.checked ? s.delete(k) : s.add(k); SP_AUS[key] = [...s]; spAusSpeichern(); render(); });
+  m.addEventListener('click', e => { const a = e.target.closest('[data-m]')?.dataset.m; if (a === 'alle') { delete SP_AUS[key]; spAusSpeichern(); render(); m.remove(); } if (a === 'ok') m.remove(); });
+  setTimeout(() => document.addEventListener('click', function zu(e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', zu); } }), 0);
 }
 /* Spaltenbreite: am rechten Rand der Überschrift ziehen (Maus oder Finger), Doppelklick = wieder automatisch. Pro Tabelle gemerkt. */
 const BREITEN = (() => { try { return JSON.parse(localStorage.getItem('mc-breiten')) || {}; } catch (e) { return {}; } })();
