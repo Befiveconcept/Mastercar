@@ -27,7 +27,7 @@ function viewKasse() {
   const base = list; list = colApply('kasse', list, cols);
   const ein = sum(list.filter(x => x.k.betrag > 0), x => x.k.betrag), aus = sum(list.filter(x => x.k.betrag < 0), x => x.k.betrag), lim = UI.more.kasse || 300;
   return `
-  <div class="toolbar"><h1>Kassenbuch</h1><span class="sp"></span><button class="btn primary" data-act="kasseNeu" data-a="aus">− Ausgabe</button><button class="btn primary" data-act="kasseNeu" data-a="ein">＋ Einnahme</button><button class="btn" data-act="csv" data-v="kasse">CSV</button></div>
+  <div class="toolbar"><h1>Kassenbuch</h1><span class="sp"></span><button class="btn primary" data-act="kasseNeu" data-a="aus">− Ausgabe</button><button class="btn primary" data-act="kasseNeu" data-a="ein">＋ Einnahme</button><button class="btn" data-act="auto" title="Neue Rechnungen und Kassenbuchungen nochmal abgleichen">⟳ Abgleichen</button><button class="btn" data-act="csv" data-v="kasse">CSV</button></div>
   ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Einträge sehen doppelt aus (gleiches Datum, gleicher Betrag, gleiche Beleg-Nr.) – <a href="#" data-act="filt" data-v="kasse" data-f="doppelt">anzeigen</a> und ggf. löschen.</div>` : ''}
   ${B.minus ? `<div class="warn">⚠ Der Kassenbestand war am ${fmtD(B.minus.datum)} negativ (${fmtE(B.minus.b)}). Eine Kasse darf nie unter null fallen – bitte Einträge prüfen.</div>` : ''}
   <section class="kpi">

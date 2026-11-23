@@ -314,6 +314,7 @@ function viewRechnungen(dir) {
   return `
   <div class="toolbar"><h1>${isA ? 'Rechnungsausgang' : 'Rechnungseingang'}</h1><span class="sp"></span>
     ${isA ? `<button class="btn primary" data-act="pick" data-t="ausgang">⬆ Excel importieren</button>` : `${pruefOffen().length ? `<button class="btn primary" data-act="pruefen">✓ Prüfen & freigeben <span class="cnt">${pruefOffen().length}</span></button>` : ''}<button class="btn primary" data-act="bezahlen">💸 Bezahlen <span class="cnt">${zuZahlen().length}</span></button><button class="btn" data-act="pickBeleg">⬆ Belege hochladen</button>`}
+    <button class="btn" data-act="auto" title="Neue Rechnungen, Bankbuchungen, SumUp und Kasse nochmal gegeneinander abgleichen">⟳ Abgleichen</button>
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
   ${!isA ? `<div class="dropzone" data-act="pickBeleg" role="button" tabindex="0"><b>Rechnungen hierher ziehen</b><span>PDF, Foto oder die ganze E-Mail aus Outlook – auch mehrere auf einmal. ${DB.aiOn ? 'Die KI liest Lieferant, Nummer, Beträge und Kostenart aus.' : '(Auslesen per KI nur in der Online-Version.)'}</span></div>` : ''}

@@ -37,7 +37,7 @@ const IMP = {
   bank: {
     label: 'Bankumsätze (CSV/Excel)', need: ['datum'],
     fields: [
-      ['konto', 'Eigenes Konto', ['auftragskonto', 'bezeichnung auftragskonto', 'iban auftragskonto', 'eigene iban', 'konto'], null],
+      ['konto', 'Eigenes Konto', ['auftragskonto', 'bezeichnung auftragskonto', 'iban auftragskonto', 'eigene iban', 'konto'], /nummer|bic|blz|name|gegen|empf/],   // „IBAN/Kontonummer“ ist das Gegenkonto, nicht das eigene
       ['datum', 'Buchungstag', ['buchungstag', 'buchungsdatum', 'datum', 'buchung'], /valuta|wert/],
       ['valuta', 'Valuta / Wertstellung', ['valuta', 'valutadatum', 'wertstellung', 'wertstellungsdatum', 'wertstellungstag'], null],
       ['betrag', 'Betrag (+/−)', ['betrag', 'betrag eur', 'betrag in eur', 'umsatz', 'amount', 'betrag euro'], /waehrung|saldo/],
@@ -191,6 +191,8 @@ async function importFile(type, file) {
     const rows = tbl.sheets[si].rows, hi = findHeader(rows, type), headers = (rows[hi] || []).map(h => String(h ?? '').trim());
     const sig = sigOf(headers), saved = (S.einstellungen['mapping_' + type] || {})[sig];
     Object.assign(st, { rows, hi, headers, sig, map: saved ? { ...saved } : autoMap(headers, type), remembered: !!saved });
+    // alte, falsch gemerkte Zuordnung: Gegenkonto-IBAN lag unter „Eigenes Konto“ → richtigstellen
+    if (type === 'bank' && st.map.konto != null && st.map.iban == null && /iban|kontonummer/i.test(headers[st.map.konto] || '') && !/auftrag|eigen/i.test(headers[st.map.konto] || '')) { st.map.iban = st.map.konto; st.map.konto = null; }
   };
   prep();
   const colOpts = (sel) => `<option value="">– nicht vorhanden –</option>` + st.headers.map((h, i) => `<option value="${i}" ${+sel === i && sel !== '' && sel != null ? 'selected' : ''}>${esc(h || 'Spalte ' + (i + 1))}${st.rows[st.hi + 1] ? ' · z. B. „' + esc(String(fmtCell(st.rows[st.hi + 1][i])).slice(0, 28)) + '“' : ''}</option>`).join('');
@@ -277,6 +279,13 @@ async function runImport(type, fileName, { out, skipped }) {
     });
     render();
   } catch (e) { busy(false); console.error(e); toast('Import fehlgeschlagen: ' + (e.message || e)); }
+}
+
+// Bereits importierte Buchungen, bei denen die Gegenkonto-IBAN im Feld „konto“ gelandet ist: im Speicher richtigstellen,
+// damit der Abgleich die IBAN nutzen kann (eigenes Konto wäre in einem Import immer dasselbe – hier wechselt es von Zeile zu Zeile)
+function bankIbanFix() {
+  const gr = {}; S.bank.forEach(b => { if (!b.iban && b.konto) (gr[b.import_id || '-'] = gr[b.import_id || '-'] || []).push(b); });
+  Object.values(gr).forEach(l => { if (new Set(l.map(b => b.konto)).size >= 3) l.forEach(b => { if (/^[A-Z]{2}\d{2}[A-Z0-9]{8,}$/.test(String(b.konto).replace(/\s/g, ''))) b.iban = String(b.konto).replace(/\s/g, '').toUpperCase(); }); });
 }
 
 /* ---------- Bank: SumUp-Auszahlungen erkennen, Kostenart vorschlagen ---------- */

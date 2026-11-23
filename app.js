@@ -244,7 +244,7 @@ Object.assign(A, {
   pick: d => { const i = $('#tblIn'); i.dataset.t = d.t; i.click(); },
   pickBeleg: () => $('#belegIn').click(),
   neuR: d => rechnungForm(d.dir),
-  auto: async () => { busy(true, 'Gleiche ab …'); try { const r = await autoAbgleich(); toast(r.n || r.links ? `${r.n} Zahlung(en) zugeordnet${r.links ? ', ' + r.links + ' SumUp-Auszahlungen verknüpft' : ''}.` : 'Nichts Neues eindeutig zuzuordnen.'); } catch (e) { toast('Fehler: ' + e.message); } busy(false); render(); },
+  auto: async () => { busy(true, 'Gleiche ab …'); try { const r = await autoAbgleich(); busy(false); render(); abgleichBericht(r); } catch (e) { busy(false); toast('Fehler: ' + e.message); render(); } },
   csv: d => exportCsv(d.v),
   undoImp: async d => {
     const imp = S.importe.find(i => i.id === d.id); if (!imp) return;
@@ -353,8 +353,10 @@ async function start() {
     const u = S.user || await DB.init();
     if (!u) return loginScreen();
     if (!(await DB.isStaff())) return loginScreen('Diese E-Mail ist noch nicht freigeschaltet. Bitte in Supabase in der Tabelle „team“ eintragen.');
-    busy(true, 'Lade Daten …'); await DB.loadAll(); await avisUmzug().catch(e => console.warn(e)); await ausgangNamenAngleichen().catch(e => console.warn(e)); busy(false);
+    busy(true, 'Lade Daten …'); await DB.loadAll(); bankIbanFix(); await avisUmzug().catch(e => console.warn(e)); await ausgangNamenAngleichen().catch(e => console.warn(e)); busy(false);
     shell(); render();
+    // Beim Öffnen still nachgleichen: was seit dem letzten Mal neu dazugekommen ist (z. B. Rechnung nach der Bankbuchung)
+    setTimeout(() => autoAbgleich().then(r => { if (r.n || r.links) { render(); toast(`Abgleich: ${r.n} Zahlung${r.n === 1 ? '' : 'en'} neu zugeordnet.`); } }).catch(e => console.warn(e)), 1500);
     if (S._fehlt) setTimeout(() => toast('Bitte in Supabase noch „02_erweiterung.sql“ ausführen – sonst fehlen Kassenbuch, To-Dos und Hebebühne.', 9000), 600);
     // Einladungs- oder Passwort-vergessen-Link: gleich ein eigenes Passwort setzen lassen
     if (DB.cloud && /type=(recovery|invite|signup|magiclink)/.test(START_HASH)) { A.pw(); history.replaceState(null, '', location.pathname); }

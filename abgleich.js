@@ -344,6 +344,30 @@ async function autoAbgleich() {
   return { n: newZ.length, links };
 }
 
+/* ---------- Ergebnis des Abgleichs: was ist zugeordnet, was bleibt offen und warum ---------- */
+function abgleichBericht(res) {
+  buildIdx();
+  const nrIn = text => [...new Set((expandNr(text).match(/R\d{2}-\d{4}\b/g) || []))];
+  const hatR = new Set(S.rechnungen.filter(r => r.nummer).map(r => normNr(r.nummer)));
+  const offen = S.bank.filter(b => !b.art && bStatus(b).key === 'offen' && b.datum >= START_DATUM).sort((a, b) => b.datum.localeCompare(a.datum));
+  const ein = offen.filter(b => b.betrag > 0), aus = offen.filter(b => b.betrag < 0);
+  const grund = b => {
+    const nrs = nrIn((b.zweck || '') + ' ' + (b.gegenpartei || '')).filter(n => !/^R25/.test(n));
+    if (/^R25|\bR?25[-\/]\d{3,4}/i.test(String(b.zweck || '').replace(/^.*SVWZ\+/, ''))) return 'Rechnung aus 2025 – nicht in dieser Software';
+    const fehlt = nrs.filter(n => !hatR.has(normNr(n)));
+    if (fehlt.length) return `${fehlt.join(', ')} noch nicht in der App (Werkstatt Journal / Rechnung hochladen)`;
+    if (nrs.length) return `${nrs.join(', ')} ist da, aber Betrag passt nicht oder schon bezahlt – bitte von Hand`;
+    return 'keine Rechnungsnummer im Text, kein eindeutiger Betrag';
+  };
+  const zeile = b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td class="num">${fmtE(b.betrag)}</td><td>${esc((b.gegenpartei || '').slice(0, 32))}</td><td class="muted">${esc(grund(b))}</td></tr>`;
+  const ausGrund = () => 'keine passende Eingangsrechnung in der App';
+  openSheet({ title: 'Abgleich fertig', wide: true, noOk: true, html: `
+    <p>${res.n ? `✓ <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} neu zugeordnet` : 'Nichts Neues eindeutig zuzuordnen'}${res.links ? ` · ${res.links} SumUp-Umsätze mit Auszahlungen verknüpft` : ''}.</p>
+    ${ein.length ? `<details open><summary><b>${ein.length}</b> Geldeingänge auf der Bank noch ohne Rechnung</summary><div class="tw"><table class="tb click"><tbody>${ein.map(zeile).join('')}</tbody></table></div></details>` : '<p>✓ Alle Geldeingänge auf der Bank sind zugeordnet.</p>'}
+    ${aus.length ? `<details><summary><b>${aus.length}</b> Abbuchungen noch ohne Eingangsrechnung</summary><div class="tw"><table class="tb click"><tbody>${aus.map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td class="num">${fmtE(b.betrag)}</td><td>${esc((b.gegenpartei || '').slice(0, 32))}</td><td class="muted">${ausGrund(b)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
+    <p class="small muted">Sobald die fehlenden Rechnungen in der App sind (Werkstatt Journal bzw. Belege hochladen), läuft der Abgleich automatisch – oder hier nochmal auf „⟳ Abgleichen“.</p>` });
+}
+
 /* ---------- Manuelles Zuordnen ---------- */
 async function zuordnen(r, pay, kind, betrag, notiz) {
   await DB.insert('zuordnungen', [{ rechnung_id: r.id, bank_id: kind === 'bank' ? pay.id : null, sumup_id: kind === 'sumup' ? pay.id : null, kasse_id: kind === 'kasse' ? pay.id : null, betrag: r2(betrag), art: kind === 'bar' ? 'bar' : 'manuell', datum: pay ? pay.datum : todayISO(), notiz: notiz || null }]);
