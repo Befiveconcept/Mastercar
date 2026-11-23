@@ -278,7 +278,8 @@ const colReset = view => colAktiv(view) ? ` <button class="btn sm" data-act="col
 
 function viewRechnungen(dir) {
   const view = dir, range = periodRange(UI.period);
-  let list = S.rechnungen.filter(r => r.richtung === dir && (UI.period === 'alle' || inP(r.datum, range) || !['bezahlt', 'erledigt', 'extern', 'storno'].includes(rStatus(r).key))).map(r => ({ r, st: rStatus(r) }));
+  // Mahnungen/Zahlungserinnerungen sind keine eigenen Zeilen – sie stehen nur als Status an der Rechnung
+  let list = S.rechnungen.filter(r => r.richtung === dir && r.art !== 'Mahnung' && (UI.period === 'alle' || inP(r.datum, range) || !['bezahlt', 'erledigt', 'extern', 'storno'].includes(rStatus(r).key))).map(r => ({ r, st: rStatus(r) }));
   // Filter: „Alle“, „Offen“ (alles nicht Bezahlte), dann jeder Status aus der Liste mit Anzahl, dazu überfällig/Abgleich-Probleme/ungeprüft
   const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
   const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
@@ -286,7 +287,9 @@ function viewRechnungen(dir) {
     dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   list = filterR(list, UI.filt[view]);
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
-  list.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '') || String(b.r.nummer || '').localeCompare(String(a.r.nummer || ''), 'de', { numeric: true }));
+  // Standard-Sortierung: Firmenname (A–Z), dann Datum (ältestes oben), dann Nummer – ein Klick auf eine Spalte sortiert anders
+  list.sort((a, b) => String(a.r.partner || '').trim().localeCompare(String(b.r.partner || '').trim(), 'de', { sensitivity: 'base' })
+    || (a.r.datum || '').localeCompare(b.r.datum || '') || String(a.r.nummer || '').localeCompare(String(b.r.nummer || ''), 'de', { numeric: true }));
   const isA = dir === 'ausgang';
   const cols = isA ? [COL.nr, COL.datum, colTxt('kunde', 'Kunde', x => x.r.partner)]
     : [COL.datum, { k: 'kw', l: 'KW', num: true, v: x => x.r.datum ? isoWeek(x.r.datum).w : null, t: x => x.r.datum ? String(isoWeek(x.r.datum).w) : '' }, colTxt('lief', 'Firma', x => x.r.partner),
