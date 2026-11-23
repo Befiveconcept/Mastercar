@@ -16,7 +16,7 @@
 <style>
 :root{
   --bg:#1F1F21; --bg2:#18181A; --surface:#2B2B2E; --surface2:#333337; --line:rgba(255,255,255,.12); --ink:#fff; --ink2:rgba(255,255,255,.75); --muted:rgba(255,255,255,.55);
-  --y:#FFFE0F; --y-t:#FFFE0F; --y-soft:rgba(255,254,15,.12); --top-bg:rgba(31,31,33,.92); --dot:rgba(255,255,255,.04); --glass:rgba(255,255,255,.05); --glass-b:rgba(255,255,255,.12); --bad-t:var(--bad-t); --ok:#3ecf8e; --warn:#f5a524; --bad:#f0505a; --info:#7aa7d6;
+  --y:#FFFE0F; --y-t:#FFFE0F; --y-soft:rgba(255,254,15,.12); --top-bg:rgba(31,31,33,.92); --dot:rgba(255,255,255,.04); --glass:rgba(255,255,255,.05); --glass-b:rgba(255,255,255,.12); --bad-t:#ff6b73; --ok:#3ecf8e; --warn:#f5a524; --bad:#f0505a; --info:#7aa7d6;
   --f-h:'Oswald',Impact,sans-serif; --f-b:'Figtree',system-ui,sans-serif; --f-m:ui-monospace,Consolas,monospace;
   --r:10px;
 }
@@ -162,78 +162,37 @@ button.k:hover{border-color:var(--y)}
 .abg-b{padding:0 16px 16px}.abg-b>p{margin:0 0 10px}
 .abg .tw.scroll{max-height:calc(100vh - 160px)}
 .tb td.mono{white-space:nowrap}
-/* ===== Tabellen im Excel-Look: weiß, feines Gitter, Kopfzeile und Hervorhebungen wie in der Excel-Mappe ===== */
-/* Grundfarben = Standard-Excel; je Bereich überschrieben mit den Farben aus der Mappe (siehe unten) */
-:root{--xl-bg:#FFFFFF;--xl-ink:#1F1F1F;--xl-muted:#6B6B6B;--xl-grid:#D9D9D9;--xl-head:#D6DCE4;--xl-head-ink:#333F4F;--xl-filter:#F2F2F2;--xl-hover:#E8F0FE;--xl-sel:#CCE0FF;
-  --xl-ok:#C6EFCE;--xl-ok-ink:#006100;--xl-bad:#FFC7CE;--xl-bad-ink:#9C0006;--xl-warn:#FFEB9C;--xl-warn-ink:#9C5700;--xl-info:#DDEBF7;--xl-info-ink:#1F4E78}
-.tw.scroll{background:var(--xl-bg);border-color:#BFBFBF;border-radius:4px}
-.tw.scroll .tb{font-family:Aptos,Calibri,'Segoe UI',Arial,sans-serif;font-size:13.5px;color:var(--xl-ink);border-collapse:separate;border-spacing:0}
-.tw.scroll .tb td{border-bottom:1px solid var(--xl-grid);border-right:1px solid var(--xl-grid);padding:5px 8px;background:var(--xl-bg);color:var(--xl-ink)}
-.tw.scroll .tb th{border-bottom:1px solid #A6A6A6;border-right:1px solid #BFBFBF;padding:6px 8px;background:var(--xl-head);color:var(--xl-head-ink);font-weight:700;text-transform:none;letter-spacing:0;font-size:13px}
-.tw.scroll .tb tr.frow th{background:var(--xl-filter);border-bottom:1px solid #A6A6A6}
-.tw.scroll .tb .cf{background:#fff;color:var(--xl-ink);border-color:#C8C8C8;border-radius:2px}
-.tw.scroll .tb .cf.on{background:#FFF2CC;border-color:#BF9000}
-.tw.scroll .tb th .sa{opacity:.55}.tw.scroll .tb th.srt.on .sa{opacity:1;color:var(--xl-head-ink)}
-.tw.scroll .tb.click tbody tr:hover td{box-shadow:inset 0 0 0 9999px rgba(0,84,196,.09)}   /* Zeile markieren, Zellfarbe bleibt sichtbar */
-.tw.scroll .tb td.stick{background:var(--xl-bg);box-shadow:2px 0 0 #A6A6A6}.tw.scroll .tb.click tbody tr:hover td.stick{box-shadow:2px 0 0 #A6A6A6,inset 0 0 0 9999px rgba(0,84,196,.09)}
-.tw.scroll .tb thead th.stick{background:var(--xl-head)}.tw.scroll .tb tr.frow th.stick{background:var(--xl-filter)}
-.tw.scroll .tb .muted,.tw.scroll .tb small{color:var(--xl-muted)}
-.tw.scroll .tb .neg{color:#C00000}.tw.scroll .tb .pos{color:#00703C}
-.tw.scroll .tb .zweck{color:#404040}
-.tw.scroll .tb tr.unchecked td:first-child{box-shadow:inset 3px 0 0 #FFC000}
-/* Status-Zellen in Excel-Farben (wie bedingte Formatierung) */
-.tw.scroll .tb .badge,.tw.scroll .tb .st-sel{border-radius:3px}
-.tw.scroll .tb .st-ok{background:var(--xl-ok);color:var(--xl-ok-ink)}.tw.scroll .tb .st-late{background:var(--xl-bad);color:var(--xl-bad-ink)}
-.tw.scroll .tb .st-bad{background:#FF0000;color:#fff}.tw.scroll .tb .st-warn{background:var(--xl-warn);color:var(--xl-warn-ink)}
-.tw.scroll .tb .st-info{background:var(--xl-info);color:var(--xl-info-ink)}.tw.scroll .tb .st-open{background:#F2F2F2;color:#404040}.tw.scroll .tb .st-ai{background:#FFF2CC;color:#7F6000}
-.tw.scroll .tb .st-sel option{background:#fff;color:#1F1F1F}
-.tw.scroll .tb .st-abb{background:#FFEB9C;color:#9C5700}.tw.scroll .tb .st-teil{background:#305496;color:#D9E1F2}.tw.scroll .tb .st-rueck{background:#7030A0;color:#E989FF}
-.tw.scroll .tb .st-offen{background:#FFC7CE;color:#9C0006}.tw.scroll .tb .st-late{background:#FFC7CE;color:#C00000;font-weight:700}
-/* ganze Status-Zelle eingefärbt wie in Excel */
-.tw.scroll .tb td.x-st-ok{background:#C6EFCE}.tw.scroll .tb td.x-st-offen{background:#FFC7CE}.tw.scroll .tb td.x-st-abb{background:#FFEB9C}.tw.scroll .tb td.x-st-warn{background:#FFEB9C}
-.tw.scroll .tb td.x-st-late{background:#FFC7CE}.tw.scroll .tb td.x-st-bad{background:#000}.tw.scroll .tb td.x-st-bad .st-sel{background:#000;color:#FF0000}
-.tw.scroll .tb td.x-st-teil{background:#305496}.tw.scroll .tb td.x-st-rueck{background:#7030A0}.tw.scroll .tb td.x-st-info{background:#DDEBF7}
-/* Einnahme/Ausgabe, Art (Rechnung rot, Gutschrift/Storno/Beleg grün) – wie bedingte Formatierung „Ein- und Ausgaben“ */
-.tw.scroll .tb td.x-ein{background:#C6EFCE;color:#006100}.tw.scroll .tb td.x-aus{background:#FFC7CE;color:#9C0006}
-.tw.scroll .tb td.x-art-r{color:#9C0006}.tw.scroll .tb td.x-art-g{color:#548235}
-
-/* — Rechnungseingang = Blatt „Ein- und Ausgaben“: Arial, Kopf und Textspalten grau-blau, Beträge apricot, Skonto hellblau — */
-.tw.scroll[data-view=eingang] .tb,.tw.scroll[data-view=avis] .tb{font-family:Arial,Helvetica,sans-serif}
-.tw.scroll[data-view=eingang] .tb th{background:#D6DCE4;color:#333F4F}
-.tw.scroll[data-view=eingang] .tb td.c-lief,.tw.scroll[data-view=eingang] .tb td.c-ka,.tw.scroll[data-view=eingang] .tb td.c-art,.tw.scroll[data-view=eingang] .tb td.c-nr,
-.tw.scroll[data-view=eingang] .tb td.c-za,.tw.scroll[data-view=eingang] .tb td.c-fix,.tw.scroll[data-view=eingang] .tb td.c-dlp,.tw.scroll[data-view=eingang] .tb td.c-mw{background:#D6DCE4;color:#333F4F}
-.tw.scroll[data-view=eingang] .tb td.c-art.x-art-r{color:#9C0006}.tw.scroll[data-view=eingang] .tb td.c-art.x-art-g{color:#548235}
-.tw.scroll[data-view=eingang] .tb td.c-datum,.tw.scroll[data-view=eingang] .tb td.c-kw{background:#ACB9CA;color:#333F4F}
-.tw.scroll[data-view=eingang] .tb td.c-brutto{background:#FCE4D6;color:#333F4F}.tw.scroll[data-view=eingang] .tb td.c-skonto{background:#D9E1F2;color:#333F4F}
-
-/* — Rechnungsausgang = Blatt „Werkstatt Journal“: Calibri, Kopf silbergrau, Zellen hellgrau, Brutto/Netto apricot — */
-.tw.scroll[data-view=ausgang] .tb{font-family:Calibri,Aptos,'Segoe UI',Arial,sans-serif;font-size:14px}
-.tw.scroll[data-view=ausgang] .tb th{background:#C0C0C0;color:#000}
-.tw.scroll[data-view=ausgang] .tb td{background:#EDEDED}
-.tw.scroll[data-view=ausgang] .tb td.c-nr{font-weight:700}
-.tw.scroll[data-view=ausgang] .tb td.c-brutto{background:#FCE4D6;font-weight:700}.tw.scroll[data-view=ausgang] .tb td.c-offen{background:#FCE4D6}
-.tw.scroll[data-view=ausgang] .tb td.c-za,.tw.scroll[data-view=ausgang] .tb td.c-gep{background:#D6DCE4;color:#333F4F}
-.tw.scroll[data-view=ausgang] .tb td.c-netto{background:#FCE4D6}
-.tw.scroll[data-view=ausgang] .tb td.c-monat,.tw.scroll[data-view=ausgang] .tb td.c-kw,.tw.scroll[data-view=ausgang] .tb td.c-quartal{background:#D9D9D9}
-.tw.scroll[data-view=ausgang] .tb td.c-gep.x-gep-nein{background:#FFC7CE;color:#9C0006}
-.tw.scroll[data-view=ausgang] .tb td.st-td.x-st-ok{background:#C6EFCE}.tw.scroll[data-view=ausgang] .tb td.st-td.x-st-offen{background:#FFC7CE}.tw.scroll[data-view=ausgang] .tb td.st-td.x-st-warn{background:#FFEB9C}
-.tw.scroll[data-view=ausgang] .tb td.stick{background:#EDEDED}
-
-/* — Kassenbuch: Kopf blau mit weißer Schrift, Zellen hellblau, Nr./Bestand grau — */
-.tw.scroll[data-view=kasse] .tb{font-family:Calibri,Aptos,'Segoe UI',Arial,sans-serif;font-size:14px}
-.tw.scroll[data-view=kasse] .tb th{background:#4472C4;color:#fff}.tw.scroll[data-view=kasse] .tb th .sa{color:#fff}
-.tw.scroll[data-view=kasse] .tb tr.frow th{background:#D9E1F2}
-.tw.scroll[data-view=kasse] .tb td{background:#D9E1F2}
-.tw.scroll[data-view=kasse] .tb td.c-beleg,.tw.scroll[data-view=kasse] .tb td.c-bestand{background:#C0C0C0}
-.tw.scroll[data-view=kasse] .tb td.stick{background:#D9E1F2}
-.tw.scroll[data-view=kasse] .tb thead tr:first-child th.stick{background:#4472C4}.tw.scroll[data-view=kasse] .tb tr.frow th.stick{background:#D9E1F2}
-.tw.scroll[data-view=ausgang] .tb thead tr:first-child th.stick{background:#C0C0C0}
-.tw.scroll::-webkit-scrollbar-track{background:#F0F0F0}.tw.scroll::-webkit-scrollbar-thumb{border-color:#F0F0F0}
+/* ===== Tabellen: überall derselbe Look – Schrift und Farben der Webseite, hell/dunkel automatisch ===== */
+/* Statusfarben als halbtransparente Töne, damit sie in hell und dunkel gleich gut lesbar sind */
+:root{--st-ok-bg:rgba(62,207,142,.16);--st-bad-bg:rgba(240,80,90,.17);--st-warn-bg:rgba(245,165,36,.2);--st-info-bg:rgba(122,167,214,.17);--st-lila:#b58be0;--st-lila-bg:rgba(150,90,200,.2);--tb-hover:rgba(255,255,255,.045)}
+:root[data-theme="light"]{--st-lila:#7a3fb0;--tb-hover:rgba(0,0,0,.035)}
+.tw.scroll{background:var(--surface);border-color:var(--line);border-radius:12px}
+.tw.scroll .tb{font-family:inherit;font-size:13.5px;color:var(--ink);border-collapse:separate;border-spacing:0}
+.tw.scroll .tb td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.tw.scroll .tb th{border-bottom:1px solid var(--line);border-right:1px solid var(--line);background:var(--bg2);color:var(--muted)}
+.tw.scroll .tb tr.frow th{background:var(--bg2)}
+.tw.scroll .tb td:last-child,.tw.scroll .tb th:last-child{border-right:0}
+.tw.scroll .tb.click tbody tr:hover td{box-shadow:inset 0 0 0 9999px var(--tb-hover)}   /* Zeile markieren, Zellfarbe bleibt sichtbar */
+.tw.scroll .tb td.stick{background:var(--surface);box-shadow:2px 0 0 var(--line)}.tw.scroll .tb.click tbody tr:hover td.stick{box-shadow:2px 0 0 var(--line),inset 0 0 0 9999px var(--tb-hover)}
+.tw.scroll .tb thead th.stick,.tw.scroll .tb tr.frow th.stick{background:var(--bg2)}
+.tw.scroll .tb .muted,.tw.scroll .tb small{color:var(--muted)}
+.tw.scroll .tb .neg{color:var(--bad)}.tw.scroll .tb .pos{color:var(--ok)}
+.tw.scroll .tb .zweck{color:var(--ink2)}
+.tw.scroll .tb tr.unchecked td:first-child{box-shadow:inset 3px 0 0 var(--y)}
+.tw.scroll .tb .badge,.tw.scroll .tb .st-sel{border-radius:6px}
+/* ganze Status-Zelle leicht eingefärbt (wie die bedingte Formatierung in der Excel, aber im Farbsystem der App) */
+.tw.scroll .tb td.x-st-ok{background:var(--st-ok-bg)}.tw.scroll .tb td.x-st-offen,.tw.scroll .tb td.x-st-late{background:var(--st-bad-bg)}
+.tw.scroll .tb td.x-st-abb,.tw.scroll .tb td.x-st-warn{background:var(--st-warn-bg)}.tw.scroll .tb td.x-st-info,.tw.scroll .tb td.x-st-teil{background:var(--st-info-bg)}
+.tw.scroll .tb td.x-st-bad{background:rgba(240,80,90,.35)}.tw.scroll .tb td.x-st-rueck{background:var(--st-lila-bg)}
+/* Einnahme/Ausgabe und Art: Ausgabe/Rechnung rot, Einnahme/Gutschrift grün */
+.tw.scroll .tb td.x-ein{color:var(--ok)}.tw.scroll .tb td.x-aus{color:var(--bad)}
+.tw.scroll .tb td.x-art-r{color:var(--bad)}.tw.scroll .tb td.x-art-g{color:var(--ok)}
+.tw.scroll .tb td.c-nr{font-weight:700}
 /* Spalte „Verknüpft“: Bankbuchung gefunden = grün, laut Liste bezahlt aber nicht gefunden = gelb, keine = grau */
 .tb td.verk{font-size:11.5px;white-space:nowrap}
-.vk-btn{font:inherit;font-size:11.5px;border:1px solid rgba(55,86,35,.35);background:rgba(255,255,255,.6);color:inherit;border-radius:4px;padding:1px 6px;cursor:pointer;white-space:nowrap}
-.vk-btn:hover{background:#fff;border-color:#375623;text-decoration:underline}
-.tw.scroll .tb td.x-vk-bank{background:#E2EFDA;color:#375623}.tw.scroll .tb td.x-vk-warn{background:#FFF2CC;color:#7F6000}.tw.scroll .tb td.x-vk-keine{color:#808080}
+.vk-btn{font:inherit;font-size:11.5px;border:1px solid var(--line);background:var(--glass);color:inherit;border-radius:6px;padding:1px 6px;cursor:pointer;white-space:nowrap}
+.vk-btn:hover{border-color:var(--ok);text-decoration:underline}
+.tw.scroll .tb td.x-vk-bank{background:var(--st-ok-bg);color:var(--ok)}.tw.scroll .tb td.x-vk-warn{background:var(--st-warn-bg);color:var(--warn)}.tw.scroll .tb td.x-vk-keine{color:var(--muted)}
 /* Kompakt: Spalten nur so breit und Zeilen nur so hoch wie der Inhalt (eine Zeile pro Eintrag, wie Excel) */
 .tw.scroll .tb{width:auto;min-width:0}
 .tw.scroll .tb td,.tw.scroll .tb th{white-space:nowrap;padding:3px 7px;line-height:1.3;vertical-align:middle}
@@ -249,22 +208,20 @@ button.k:hover{border-color:var(--y)}
 .sumrow{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 .sumrow span{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:5px 10px;min-width:110px}
 .sumrow small{font-size:11px;color:var(--muted)}.sumrow b{font-variant-numeric:tabular-nums;font-size:14px}
-.tw.scroll .tb td.x-gep-nein{background:#FFC7CE;color:#9C0006}
-/* Prüfliste (Excel-Look „Ein- und Ausgaben“) */
+.tw.scroll .tb td.x-gep-nein{background:var(--st-bad-bg);color:var(--bad)}
+/* Prüfliste – gleicher Tabellen-Look wie überall */
 .pr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}.pr-bar .sp{flex:1}
-.pr-tw{max-height:65vh;overflow:auto;background:#fff;border-color:#BFBFBF;border-radius:4px}
-.pr-tab{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1F1F1F;border-collapse:separate;border-spacing:0}
-.pr-tab th{background:#D6DCE4;color:#333F4F;font-weight:700;text-transform:none;letter-spacing:0;font-size:12.5px;border-right:1px solid #BFBFBF;border-bottom:1px solid #A6A6A6;padding:6px}
-.pr-tab td{padding:0;border-right:1px solid #D9D9D9;border-bottom:1px solid #D9D9D9;background:#fff;vertical-align:middle}
+.pr-tw{max-height:65vh;overflow:auto;background:var(--surface);border-color:var(--line);border-radius:12px}
+.pr-tab{font-family:inherit;font-size:13.5px;color:var(--ink);border-collapse:separate;border-spacing:0}
+.pr-tab th{background:var(--bg2);color:var(--muted);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 8px}
+.pr-tab td{padding:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface);vertical-align:middle}
 .pr-tab td:first-child,.pr-tab td:nth-child(2){text-align:center;padding:2px 4px}
-.pr-tab td.c-partner,.pr-tab td.c-art,.pr-tab td.c-nummer,.pr-tab td.c-kostenart,.pr-tab td.c-fix,.pr-tab td.c-zahlart{background:#D6DCE4}
-.pr-tab td.c-datum{background:#ACB9CA}.pr-tab td.c-brutto{background:#FCE4D6}.pr-tab td.c-skonto{background:#D9E1F2}
-.pr-i{width:100%;min-width:90px;border:0;background:transparent;font:inherit;color:#1F1F1F;padding:6px 6px;outline:none}
-.pr-i:focus{background:#FFF2CC;box-shadow:inset 0 0 0 2px #217346}
+.pr-i{width:100%;min-width:90px;border:0;background:transparent;font:inherit;color:var(--ink);padding:6px 6px;outline:none}
+.pr-i:focus{background:var(--y-soft);box-shadow:inset 0 0 0 2px var(--y)}
 .pr-i.num{text-align:right;min-width:80px}
 .pr-tab td.c-partner .pr-i{min-width:170px}.pr-tab td.c-notiz .pr-i{min-width:200px}.pr-tab td.c-kostenart .pr-i{min-width:160px}.pr-tab td.c-iban .pr-i{min-width:200px}
-.pr-tab tr.pr-dirty td:first-child{box-shadow:inset 3px 0 0 #FFC000}
-.pr-tab tr:hover td{box-shadow:inset 0 0 0 9999px rgba(0,84,196,.06)}
+.pr-tab tr.pr-dirty td:first-child{box-shadow:inset 3px 0 0 var(--y)}
+.pr-tab tr:hover td{box-shadow:inset 0 0 0 9999px var(--tb-hover)}
 /* Spalten ausblenden */
 .tb .col-aus{display:none}
 .col-x{position:absolute;top:3px;right:10px;font-size:11px;line-height:1;padding:2px 3px;border-radius:3px;cursor:pointer;opacity:0;color:inherit;background:rgba(255,255,255,.7)}
@@ -332,8 +289,7 @@ details.xl{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding
 .st-sel.st-ok{background:rgba(62,207,142,.18);color:var(--ok)}.st-sel.st-late{background:rgba(240,80,90,.2);color:var(--bad-t)}.st-sel.st-bad{background:var(--bad);color:#fff}
 .st-sel.st-warn{background:rgba(245,165,36,.2);color:var(--warn)}.st-sel.st-info{background:rgba(122,167,214,.18);color:var(--info)}
 .st-sel option{background:var(--surface);color:var(--ink)}
-.st-abb{background:#FFEB9C;color:#9C5700}.st-teil{background:#305496;color:#D9E1F2}.st-rueck{background:#7030A0;color:#E989FF}.st-offen{background:#FFC7CE;color:#9C0006}
-.st-sel.st-abb{background:#FFEB9C;color:#9C5700}.st-sel.st-teil{background:#305496;color:#D9E1F2}.st-sel.st-rueck{background:#7030A0;color:#E989FF}.st-sel.st-offen{background:#FFC7CE;color:#9C0006}.badge.hint{font-weight:500;opacity:.9}.st-td{white-space:nowrap}.st-bad{background:var(--bad);color:#fff}.st-info{background:rgba(122,167,214,.16);color:var(--info)}.st-ai{background:var(--y-soft);color:var(--y-t)}
+.st-abb,.st-sel.st-abb{background:rgba(245,165,36,.2);color:var(--warn)}.st-teil,.st-sel.st-teil{background:rgba(122,167,214,.2);color:var(--info)}.st-rueck,.st-sel.st-rueck{background:var(--st-lila-bg);color:var(--st-lila)}.st-offen,.st-sel.st-offen{background:rgba(240,80,90,.18);color:var(--bad-t)}.badge.hint{font-weight:500;opacity:.9}.st-td{white-space:nowrap}.st-bad{background:var(--bad);color:#fff}.st-info{background:rgba(122,167,214,.16);color:var(--info)}.st-ai{background:var(--y-soft);color:var(--y-t)}
 
 /* Fenster */
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto}
