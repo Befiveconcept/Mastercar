@@ -276,13 +276,13 @@ function viewRechnungen(dir) {
   ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}" class="${r.geprueft ? '' : 'unchecked'}">
     ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.kennzeichen || '')}</td>
       <td class="num">${fmtE(r.brutto)}</td><td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${esc(ZA[r.zahlart] || '')}</td><td>${r.datei ? '📄' : ''}</td>`
-      : `<td>${fmtD(r.datum)}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${esc(r.partner || '')}</td><td>${(r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe'}</td><td>${fixTxt(r)}</td>
-      <td>${esc(r.kostenart || '–')}${r.unterkonto ? `<br><small class="muted">${esc(r.unterkonto)}</small>` : ''}</td><td>${esc(r.art || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
+      : `<td>${fmtD(r.datum)}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${esc(r.partner || '')}</td><td class="${(r.brutto || 0) < 0 ? 'x-ein' : 'x-aus'}">${(r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe'}</td><td>${fixTxt(r)}</td>
+      <td>${esc(r.kostenart || '–')}${r.unterkonto ? `<br><small class="muted">${esc(r.unterkonto)}</small>` : ''}</td><td class="${/rechnung|vertrag|korrektur/i.test(r.art || 'Rechnung') ? 'x-art-r' : 'x-art-g'}">${esc(r.art || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
       <td class="num">${fmtE(r.brutto)}</td><td class="num">${r.skonto ? fmtE(Math.abs(r.skonto)) : ''}</td><td class="num">${r.durchlaufend ? fmtE(r.durchlaufend) : ''}</td><td class="num">${r.netto != null ? fmtE(r.netto) : ''}</td>
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
     <td class="small verk">${esc(verkTxt(r))}</td>
-    <td class="st-td">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
+    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 

@@ -30,7 +30,8 @@ const stListe = dir => { const s = new Set(ST_LISTE[dir]); S.rechnungen.forEach(
 const stNorm = (v, dir) => { const t = String(v || '').trim(); if (!t) return null; const hit = ST_LISTE[dir || 'eingang'].concat(ST_LISTE.ausgang).find(x => x.toLowerCase() === t.toLowerCase()); return hit || t; };
 const istBezahltLaut = s => /^(bezahlt|beleg fehlt|zu viel)/i.test(String(s || '').trim());
 const istStornoLaut = s => /^storn/i.test(String(s || '').trim());
-const ST_CLS = s => istBezahltLaut(s) ? (/zu viel/i.test(s) ? 'st-warn' : 'st-ok') : /^[23]\.\s*mahn/i.test(s) ? 'st-bad' : /mahn/i.test(s) ? 'st-late' : istStornoLaut(s) ? 'st-info' : /abbuchung/i.test(s) ? 'st-info' : 'st-open';
+// Farben wie die bedingte Formatierung der Excel-Mappe: Bezahlt grün, Offen rot, Abbuchung offen gelb, Teilw. bezahlt dunkelblau, Rücklastschrift lila, Mahnungen rot/schwarz
+const ST_CLS = s => istBezahltLaut(s) ? (/zu viel/i.test(s) ? 'st-warn' : 'st-ok') : /^[23]\.\s*mahn|letzte mahn/i.test(s) ? 'st-bad' : /mahn/i.test(s) ? 'st-late' : istStornoLaut(s) ? 'st-info' : /abbuchung/i.test(s) ? 'st-abb' : /teilw/i.test(s) ? 'st-teil' : /r(ü|ue)cklast/i.test(s) ? 'st-rueck' : /^offen/i.test(s) ? 'st-offen' : 'st-open';
 function rStatus(r) {
   // Gutschrift/Korrektur, die mit einer Rechnung verknüpft ist: wird dort verrechnet, ist selbst nichts mehr offen
   const orig = r.bezug_id && (+r.brutto || 0) < 0 ? S.rechnungen.find(x => x.id === r.bezug_id) : null;

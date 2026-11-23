@@ -107,6 +107,10 @@ function twSpalten(tw, key, box) {
     if (order.some((v, i) => v !== i)) tw.querySelectorAll('tr').forEach(tr => { const c = [...tr.children]; if (c.length === n) order.forEach(i => tr.appendChild(c[i])); });
     box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spaltenreihenfolge">↺ Spalten</button>');
   }
+  // Excel-Look: jede Zelle bekommt ihre Spalte als Klasse (c-brutto, c-st …), die Tabelle ihren Bereich (Farben wie in der Excel-Mappe)
+  tw.dataset.view = UI.view;
+  const ks = [...h.children].map(th => th.dataset.k || '');
+  tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length !== n) return; [...tr.children].forEach((c, i) => { if (ks[i]) c.classList.add('c-' + ks[i]); }); });
   twBreiten(tw, key, h);
   if (!want && BREITEN[key] && Object.keys(BREITEN[key]).length) box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spalten (Reihenfolge und Breite)">↺ Spalten</button>');
   const hs = [...h.children], ni = hs.findIndex(th => th.dataset.name);
