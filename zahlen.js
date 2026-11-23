@@ -59,14 +59,57 @@ function bezahlenAnsicht() {
       <div class="pz-qr" hidden></div>
     </article>`;
   };
-  const d = openSheet({
-    title: '💸 Bezahlen', wide: true, noOk: true, html: `
-    <div class="sumline"><b>${list.length}</b> offene Rechnung${list.length === 1 ? '' : 'en'} zum Überweisen · zusammen <b>${fmtE(sum(list, x => x.st.offen))}</b>
-      · davon überfällig ${list.filter(x => x.faellig && x.faellig < heute).length} <span class="muted">(ohne „Abbuchung offen“ / SEPA – die werden abgebucht)</span></div>
+  // Schritt 1: Übersicht wie in der Excel (Blatt „Ein- und Ausgaben“) – auswählen, was überwiesen werden soll
+  const wahl = new Set(list.map(x => x.r.id));
+  const tabelle = () => {
+    const sel = list.filter(x => wahl.has(x.r.id));
+    const zeile = ({ r, st, faellig }) => {
+      const spaet = faellig && faellig < heute, ib = ibanVorschlag(r);
+      return `<tr data-zeile="${r.id}" class="${wahl.has(r.id) ? '' : 'pz-aus'}">
+        <td class="c-chk"><input type="checkbox" data-wahl="${r.id}" ${wahl.has(r.id) ? 'checked' : ''} aria-label="auswählen"></td>
+        <td class="c-datum">${fmtD(r.datum)}</td><td class="c-lief">${esc(r.partner || '')}</td>
+        <td class="c-art ${(+r.brutto || 0) < 0 ? 'x-art-g' : 'x-art-r'}">${esc(r.art || 'Rechnung')}</td><td class="c-nr">${esc(r.nummer || '')}</td>
+        <td class="c-ka">${esc(r.kostenart || '')}</td><td class="c-za">${esc(ZA[r.zahlart] || '')}</td>
+        <td class="c-brutto num">${fmtE(r.brutto)}</td><td class="c-skonto num">${r.skonto ? fmtE(r.skonto) : ''}</td>
+        <td class="num"><b>${fmtE(st.offen)}</b></td>
+        <td class="${spaet ? 'neg' : ''}">${faellig ? fmtD(faellig) : ''}</td>
+        <td class="${ST_CLS(st.label)}">${esc(st.label)}</td>
+        <td>${ib ? '✓' : '<span class="muted">fehlt</span>'}</td>
+        <td>${r.datei ? `<button class="btn xs" data-pdf="${r.id}" title="PDF ansehen">📄</button>` : ''}</td></tr>`;
+    };
+    return `
+    <div class="pz-step"><b>Schritt 1 von 2</b> · Offene Rechnungen auswählen <span class="muted small">(ohne „Abbuchung offen“ / SEPA – die werden abgebucht)</span></div>
     <input class="inp search" type="search" id="pzQ" placeholder="Suchen: Lieferant, Nummer, Betrag …">
-    <div id="pzL">${list.map(karte).join('') || '<div class="empty">Nichts zu überweisen – alles bezahlt oder per Lastschrift. 🎉</div>'}</div>` });
-  d.addEventListener('input', e => { if (e.target.id !== 'pzQ') return; const q = norm(e.target.value); $$('.pz', d).forEach(a => a.hidden = q && !norm(a.innerText).includes(q)); });
+    <div class="tw scroll" data-view="eingang"><table class="tb pz-tab"><thead><tr>
+      <th><input type="checkbox" id="pzAlle" ${sel.length === list.length ? 'checked' : ''} aria-label="alle"></th>
+      <th>Rechnungsdatum</th><th>Firma</th><th>Art</th><th>Rechnungsnr.</th><th>Kategorie</th><th>Zahlart</th><th class="num">Preis gesamt brutto</th><th class="num">Skonto</th><th class="num">Zu zahlen</th><th>Fällig</th><th>Erledigt?</th><th>IBAN</th><th>PDF</th></tr></thead>
+      <tbody>${list.map(zeile).join('')}</tbody></table></div>
+    <div class="btnrow"><span class="sumline" style="margin:0"><b>${sel.length}</b> von ${list.length} ausgewählt · davon überfällig ${sel.filter(x => x.faellig && x.faellig < heute).length} · zusammen <b>${fmtE(sum(sel, x => x.st.offen))}</b></span><span class="sp"></span><button class="btn primary" data-weiter ${sel.length ? '' : 'disabled'}>Weiter: ${sel.length} überweisen →</button></div>`;
+  };
+  // Schritt 2: die Überweisungsdaten je ausgewählter Rechnung
+  const karten = () => {
+    const sel = list.filter(x => wahl.has(x.r.id));
+    return `<div class="pz-step"><button class="btn sm" data-zurueck>← Zurück zur Übersicht</button> <b>Schritt 2 von 2</b> · Überweisen
+      <span class="sp"></span><span><b>${sel.length}</b> Rechnung${sel.length === 1 ? '' : 'en'} · zusammen <b>${fmtE(sum(sel, x => x.st.offen))}</b></span></div>
+      <div id="pzL">${sel.map(karte).join('') || '<div class="empty">Alles überwiesen. 🎉</div>'}</div>`;
+  };
+  if (!list.length) return openSheet({ title: '💸 Bezahlen', noOk: true, html: '<div class="empty">Nichts zu überweisen – alles bezahlt oder per Lastschrift. 🎉</div>' });
+  const d = openSheet({ title: '💸 Bezahlen', wide: true, noOk: true, html: `<div id="pzBody">${tabelle()}</div>` });
+  const body = () => $('#pzBody', d);
+  const schritt1 = () => { body().innerHTML = tabelle(); body().scrollTop = 0; };
+  const nurSumme = () => { const q = $('#pzQ', d) && $('#pzQ', d).value; schritt1(); if (q) { $('#pzQ', d).value = q; filtern(q); } };
+  const filtern = v => { const q = norm(v); $$('tr[data-zeile]', d).forEach(t => t.hidden = q && !norm(t.innerText).includes(q)); $$('.pz', d).forEach(a => a.hidden = q && !norm(a.innerText).includes(q)); };
+  d.addEventListener('input', e => { if (e.target.id === 'pzQ') filtern(e.target.value); });
+  d.addEventListener('change', e => {
+    if (e.target.id === 'pzAlle') { list.forEach(x => e.target.checked ? wahl.add(x.r.id) : wahl.delete(x.r.id)); return nurSumme(); }
+    const w = e.target.closest('[data-wahl]'); if (w) { w.checked ? wahl.add(w.dataset.wahl) : wahl.delete(w.dataset.wahl); nurSumme(); }
+  });
   d.addEventListener('click', async e => {
+    if (e.target.closest('[data-weiter]')) { body().innerHTML = karten(); body().scrollTop = 0; return; }
+    if (e.target.closest('[data-zurueck]')) return schritt1();
+    // Klick in die Zeile (nicht auf Knöpfe) = an-/abwählen
+    const tr = e.target.closest('tr[data-zeile]');
+    if (tr && !e.target.closest('button, input')) { const id = tr.dataset.zeile; wahl.has(id) ? wahl.delete(id) : wahl.add(id); return nurSumme(); }
     const c = e.target.closest('[data-copy]'); if (c) return kopieren(c.dataset.copy, c.dataset.was);
     const p = e.target.closest('[data-pdf]');
     if (p) { const r = S.rechnungen.find(x => x.id === p.dataset.pdf), w = window.open('', '_blank'); try { const u = await DB.fileUrl(r.datei); if (w) w.location = u; else window.open(u, '_blank'); } catch (er) { if (w) w.close(); toast('PDF nicht gefunden.'); } return; }
@@ -90,14 +133,17 @@ function bezahlenAnsicht() {
         if (!iban) { toast('Keine IBAN in der PDF gefunden – bitte von Hand eintragen.'); return; }
       } else { iban = String(prompt('IBAN für ' + (r.partner || '') + ':', '') || '').replace(/\s/g, '').toUpperCase(); if (!iban) return; }
       if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban)) { toast('Das sieht nicht nach einer IBAN aus: ' + iban); return; }
-      await DB.update('rechnungen', r.id, { iban }); toast('IBAN gespeichert'); closeSheet(); bezahlenAnsicht();
-      setTimeout(() => $(`#sheet .pz[data-rid="${r.id}"]`)?.scrollIntoView({ block: 'center' }), 50); return;
+      await DB.update('rechnungen', r.id, { iban }); toast('IBAN gespeichert');
+      // Karte an Ort und Stelle neu zeichnen (in Schritt 2 bleiben)
+      const x = list.find(y => y.r.id === r.id); if (x) { x.r = S.rechnungen.find(y => y.id === r.id) || x.r; const a = ik.closest('.pz'); if (a) a.outerHTML = karte(x); }
+      return;
     }
     const u = e.target.closest('[data-ueberw]');
     if (u) {
       const r = S.rechnungen.find(x => x.id === u.dataset.ueberw);
       await DB.update('rechnungen', r.id, { status_excel: 'Bezahlt', bezahlt_extern: true, notiz: [r.notiz, 'überwiesen am ' + fmtD(todayISO())].filter(Boolean).join(' · ') });
       const art = u.closest('.pz'); art.classList.add('fertig'); setTimeout(() => art.remove(), 400);
+      wahl.delete(r.id); const i = list.findIndex(x => x.r.id === r.id); if (i >= 0) list.splice(i, 1);   // auch aus der Übersicht (Schritt 1) nehmen
       toast('Als überwiesen markiert – die Bank-Buchung wird später automatisch zugeordnet.'); render(); return;
     }
     const det = e.target.closest('[data-a="detail"]'); if (det) rechnungDetail(det.dataset.id);

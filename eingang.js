@@ -16,7 +16,8 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","zahlweg":"lastschrift|ueberweisung|bar|karte|paypal|","gutschrift":false}
+{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","zahlweg":"lastschrift|ueberweisung|bar|karte|paypal|","gutschrift":false,"durchlaufend":0}
+durchlaufend = Summe der durchlaufenden Posten ohne MwSt (amtliche Gebühren: HU/AU-Prüfgebühren, Plaketten, Zulassungs- und Behördengebühren, Gebühren „gem. GebOSt“ oder „nicht umsatzsteuerbar/ohne MwSt“ im Namen und für Rechnung Dritter). Bei TÜV, DEKRA, GTÜ, KÜS ist das meist der ganze Betrag. Diese Beträge NICHT in netto/mwst rechnen; 0, wenn es keine gibt.
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
 zahlweg: wie laut Rechnung bezahlt wird – "lastschrift" (SEPA-Lastschrift, „wird abgebucht“, „Einzug“, Mandatsreferenz), "ueberweisung" (Bankverbindung zum Überweisen, „zahlbar bis“, „bitte überweisen“), "bar", "karte" (EC/Kreditkarte), "paypal"; leer, wenn nichts dazu draufsteht.
 kontoauszug=true (und sonst nichts ausfüllen), wenn es ein Kontoauszug / eine Umsatzliste einer Bank ist.
@@ -73,6 +74,26 @@ function gleicherSteller(a, b) {
   const ta = na.split(' '), tb = nb.split(' ');
   if (ta[0] === tb[0] && ta[0].length >= 4 && !ALLGEMEIN.has(ta[0])) return true;
   return ALLGEMEIN.has(ta[0]) && ta.length > 1 && tb.length > 1 && ta[0] === tb[0] && ta[1] === tb[1];   // „Autohaus Nolden“ = „Autohaus Nolden GmbH“
+}
+/* Durchlaufende Posten (ohne MwSt): amtliche Prüf-/Behördengebühren. TÜV, DEKRA, GTÜ, KÜS, Zulassungsstelle → ganzer Betrag
+   (so steht es auch in der Excel: netto 0, MwSt 0, „Mwst.?“ Nein). Sonst wie bisher beim selben Rechnungssteller, sonst der von der KI gelesene Teilbetrag. */
+const DLP_STELLER = /t(ü|ue)v\b|t(ü|ue)v |dekra|\bgt(ü|ue)\b|\bk(ü|ue)s\b|zulassungsstelle|stra(ß|ss)enverkehrsamt|kfz.?zulassung|kraftfahrt.?bundesamt/i;
+function dlpAnwenden(row, x) {
+  const b = +row.brutto || 0; if (!b) return;
+  const vor = row.partner ? S.rechnungen.filter(r => r.richtung === 'eingang' && r.id !== row.id && (+r.brutto || 0) !== 0 && gleicherSteller(r.partner, row.partner)) : [];
+  const vorVoll = vor.length && vor.filter(r => eq(Math.abs(+r.durchlaufend || 0), Math.abs(+r.brutto))).length > vor.length / 2;
+  const ki = Math.abs(parseNum(x && x.durchlaufend) || 0);
+  const voll = DLP_STELLER.test(row.partner || '') || vorVoll || (ki > 0 && eq(ki, Math.abs(b)));
+  if (voll) Object.assign(row, { durchlaufend: b, netto: 0, mwst: 0, nach_dlp: 0, mwst_pflicht: false, notiz: [row.notiz, 'Durchlaufender Posten (ohne MwSt)'].filter(Boolean).join(' · ') });
+  else if (ki > 0.005 && ki < Math.abs(b)) { const d = Math.sign(b) * ki; Object.assign(row, { durchlaufend: r2(d), nach_dlp: r2(b - d), mwst_pflicht: Math.abs(+row.mwst || 0) > 0.005 }); }
+  // Kategorie wie bisher beim selben Rechnungssteller (TÜV steht in der Excel z. B. unter Materialaufwand)
+  if (voll && vor.length) { const n = {}; vor.forEach(r => { if (r.kostenart) n[r.kostenart] = (n[r.kostenart] || 0) + 1; }); const k = Object.keys(n).sort((a, c) => n[c] - n[a])[0]; if (k) { row.kostenart = k; row.unterkonto = null; } }
+}
+// Schon angelegte Belege von TÜV/DEKRA & Co. ohne durchlaufenden Posten nachträglich richtigstellen (Excel-Zeilen bleiben wie sie sind)
+async function dlpNachziehen() {
+  const l = S.rechnungen.filter(r => r.richtung === 'eingang' && r.quelle !== 'excel' && !DOK_ARTEN.includes(r.art) && (+r.brutto || 0) !== 0 && !(+r.durchlaufend) && DLP_STELLER.test(r.partner || ''));
+  for (const r of l) { const neu = { ...r, notiz: r.notiz }; dlpAnwenden(neu, null); await DB.update('rechnungen', r.id, { durchlaufend: neu.durchlaufend, netto: neu.netto, mwst: neu.mwst, nach_dlp: neu.nach_dlp, mwst_pflicht: neu.mwst_pflicht, kostenart: neu.kostenart, unterkonto: neu.unterkonto, notiz: neu.notiz }); }
+  return l.length;
 }
 function fixVorschlag(r) {
   if (r.partner) {
@@ -278,6 +299,7 @@ async function eingangDrop(fileList) {
         notiz: x._ausMahnung ? `${x._mahnStatus} ${'am ' + fmtD(parseDate(b.mail && b.mail.date) || datum) + ' erhalten'} · ${MAHN_MERK}` : x.bezahlung === 'lastschrift' ? 'Laut Beleg per Lastschrift' : x.bezahlung === 'bereits_bezahlt' ? 'Laut Beleg bereits bezahlt' : null };
       // Datei nach Schema benennen: VE Sport_Lieferant_Art_Nummer_Datum.pdf – in der Cloud und (falls gewählt) im Ablage-Ordner
       row.fix = fixVorschlag(row);   // variabel / fix wie bisher beim selben Rechnungssteller
+      dlpAnwenden(row, x);           // TÜV/DEKRA & Co.: durchlaufender Posten, keine MwSt
       // Gutschrift / Korrektur / Storno zu einer Rechnung → direkt verknüpfen (wird dort verrechnet)
       if (x.art === 'Korrektur' || x.art === 'Storno') row.art = x.art;
       const orig = (['Gutschrift', 'Korrektur', 'Storno'].includes(row.art) || row.brutto < 0) ? bezugFinden(x.bezug_rechnung, partner, row) : null;

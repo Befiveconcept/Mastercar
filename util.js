@@ -63,21 +63,35 @@ function toast(msg, ms = 3500) {
 }
 
 // Fenster (Dialog) – html + Knöpfe; onOk bekommt das Dialog-Element
+/* Fenster-Verlauf: wird aus einem Fenster heraus ein weiteres geöffnet (Klick auf Rechnung, Zahlung, Bankbuchung …),
+   bleibt das alte im Hintergrund erhalten und das neue bekommt „← Zurück“ – genau an die Stelle, wo man war. */
+const SHEET_STACK = []; let SHEET_KLICK = 0;
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('#sheet') && !e.target.closest('[data-x],[data-ok],[data-zurueck-sheet]')) SHEET_KLICK = Date.now(); }, true);
 function openSheet({ title, html, okLabel = 'Speichern', onOk, wide = false, cancelLabel = 'Abbrechen', noOk = false }) {
-  closeSheet();
-  const d = document.createElement('div'); d.className = 'sheet-bg'; d.id = 'sheet';
+  const alt = $('#sheet');
+  // aus dem Fenster heraus geöffnet (und nicht nur dasselbe Fenster neu gezeichnet) → merken statt schließen
+  if (alt && Date.now() - SHEET_KLICK < 2500 && alt.dataset.title !== title) { alt.removeAttribute('id'); alt.remove(); SHEET_STACK.push(alt); }
+  else { $('#sheet')?.remove(); if (!alt) SHEET_STACK.length = 0; }
+  SHEET_KLICK = 0;
+  const d = document.createElement('div'); d.className = 'sheet-bg'; d.id = 'sheet'; d.dataset.title = title;
   d.innerHTML = `<div class="sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-    <header><h2>${esc(title)}</h2><button class="icon-btn" data-x aria-label="Schließen">✕</button></header>
+    <header>${SHEET_STACK.length ? `<button class="btn sm" data-zurueck-sheet title="Zurück zum vorherigen Fenster">← Zurück</button>` : ''}<h2>${esc(title)}</h2><button class="icon-btn" data-x aria-label="Schließen">✕</button></header>
     <div class="sheet-body">${html}</div>
     <footer>${noOk ? '' : `<button class="btn primary" data-ok>${esc(okLabel)}</button>`}<button class="btn" data-x>${esc(noOk ? 'Schließen' : cancelLabel)}</button></footer></div>`;
   document.body.appendChild(d);
-  d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-x]')) closeSheet(); });
+  d.addEventListener('click', e => { if (e.target.closest('[data-zurueck-sheet]')) return sheetZurueck(); if (e.target === d || e.target.closest('[data-x]')) closeSheet(); });
   const ok = d.querySelector('[data-ok]');
-  if (ok) ok.onclick = async () => { ok.disabled = true; try { const r = await onOk?.(d); if (r !== false) closeSheet(); } catch (err) { console.error(err); toast('Fehler: ' + (err.message || err)); } finally { ok.disabled = false; } };
+  // nach „Speichern“ zurück ins vorherige Fenster (falls aus einem geöffnet), sonst schließen
+  if (ok) ok.onclick = async () => { ok.disabled = true; try { const r = await onOk?.(d); if (r !== false) { if ($('#sheet') === d && SHEET_STACK.length) sheetZurueck(); else closeSheet(); } } catch (err) { console.error(err); toast('Fehler: ' + (err.message || err)); } finally { ok.disabled = false; } };
   setTimeout(() => d.querySelector('input:not([type=hidden]),select,textarea')?.focus(), 30);
   return d;
 }
-function closeSheet() { $('#sheet')?.remove(); }
+function sheetZurueck() {
+  $('#sheet')?.remove();
+  const p = SHEET_STACK.pop(); if (!p) return;
+  p.id = 'sheet'; document.body.appendChild(p);
+}
+function closeSheet() { $('#sheet')?.remove(); SHEET_STACK.length = 0; }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#sheet')) closeSheet(); });
 
 function busy(on, text) {

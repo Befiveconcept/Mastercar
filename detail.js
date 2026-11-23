@@ -39,7 +39,7 @@ async function rechnungDetail(id) {
             ${gs.map(g => `<li data-act="rechnung" data-id="${g.id}" style="cursor:pointer"><span>↔ ${esc(g.art || 'Gutschrift')} <b>${esc(g.nummer || '')}</b> · ${fmtD(g.datum)} <small class="muted">· verrechnet</small></span><b>${fmtE(g.brutto)}</b></li>`).join('')}
             ${av.map(a => `<li data-act="avisD" data-id="${a.id}" style="cursor:pointer"><span>📨 Zahlungsavis ${esc(a.nummer || '')} · ${fmtD(a.datum)} · ${a.bank_id ? 'abgebucht' : 'Abbuchung offen'}</span><b>${a.betrag != null ? fmtE(a.betrag) : ''}</b></li>`).join('')}</ul>`; })()}
         <h4>Zahlungen</h4>
-        ${st.zahlungen.length ? `<ul class="pays">${st.zahlungen.map(z => `<li><span>${payLabel(z)}${z.art === 'auto' ? ' <small class="muted">· automatisch' + (z.notiz ? ': ' + esc(z.notiz) : '') + '</small>' : z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Zuordnung lösen">✕</button></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
+        ${st.zahlungen.length ? `<ul class="pays">${st.zahlungen.map(z => `<li><span>${z.bank_id || z.sumup_id || z.kasse_id ? `<a href="#" data-zoeffnen="${z.id}" title="Zahlung öffnen">${payLabel(z)}</a>` : payLabel(z)}${z.art === 'auto' ? ' <small class="muted">· automatisch' + (z.notiz ? ': ' + esc(z.notiz) : '') + '</small>' : z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Zuordnung lösen">✕</button></li>`).join('')}</ul>` : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
         <div class="btnrow">
           <button class="btn primary" data-a="pay">Zahlung zuordnen</button>
           ${isA ? '<button class="btn" data-a="bar">Bar bezahlt</button>' : ''}
@@ -64,6 +64,8 @@ async function rechnungDetail(id) {
   const again = () => { render(); rechnungDetail(id); };
   d.addEventListener('click', async e => {
     const dz = e.target.closest('[data-delz]'); if (dz) { await zuordnungLoeschen(dz.dataset.delz); return again(); }
+    const zo = e.target.closest('[data-zoeffnen]');
+    if (zo) { e.preventDefault(); const z = S.zuordnungen.find(x => x.id === zo.dataset.zoeffnen); if (z) { if (z.bank_id) return bankDetail(z.bank_id); if (z.sumup_id) return sumupDetail(z.sumup_id); if (z.kasse_id) return kasseDetail(z.kasse_id); } return; }
     const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
     if (a === 'pay') return zahlungPicker(r);
     if (a === 'bar') { const rest = rStatus(r).offen; if (rest <= 0.005) return toast('Nichts offen.'); await zuordnen(r, null, 'bar', rest, 'Bar bezahlt'); return again(); }

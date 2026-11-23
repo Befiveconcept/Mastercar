@@ -43,7 +43,7 @@ function kennzahlen(range) {
   const bankOffen = S.bank.filter(b => b.betrag > 0 && bStatus(b).key === 'offen' && !wartetAufRechnung((b.zweck || '') + ' ' + (b.gegenpartei || ''), b.datum, stand));
   const pruefen = S.rechnungen.filter(r => !r.geprueft);
   // Kostenarten
-  const ka = {}; ein.forEach(r => { const k = r.kostenart || 'Ohne Kategorie'; ka[k] = (ka[k] || 0) + nettoE(r); });
+  const ka = {}; ein.forEach(r => { const k = kostenartE(r) || 'Ohne Kategorie'; ka[k] = (ka[k] || 0) + nettoE(r); });
   // Zahlarten der Ausgangsrechnungen (gefundene Zahlung, sonst Zahlart laut Liste)
   const zaSum = { bank: 0, ec: 0, bar: 0, offen: 0 };
   aus.forEach(r => { if (r.erledigt) return; const st = rStatus(r), zs = st.zahlungen; let rest = sollOf(r);
