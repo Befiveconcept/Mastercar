@@ -21,7 +21,7 @@ ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Liefersche
 zahlweg: wie laut Rechnung bezahlt wird – "lastschrift" (SEPA-Lastschrift, „wird abgebucht“, „Einzug“, Mandatsreferenz), "ueberweisung" (Bankverbindung zum Überweisen, „zahlbar bis“, „bitte überweisen“), "bar", "karte" (EC/Kreditkarte), "paypal"; leer, wenn nichts dazu draufsteht.
 kontoauszug=true (und sonst nichts ausfüllen), wenn es ein Kontoauszug / eine Umsatzliste einer Bank ist.
 Zahlungsavis (Zahlungsankündigung, Lastschrift-Vorabinformation, Zahlungsbestätigung/Überweisungsavis eines Kunden oder Lieferanten): ist_rechnung=true, art="Zahlungsavis", lieferant = wer das Avis geschickt hat, nummer = die Nummer des Avis (steht als Avis-Nr., Zahlungsavis-Nr., Zahlungsnummer, Belegnummer, Referenz oder Dokumentnummer – unbedingt angeben, nie leer lassen, wenn irgendeine solche Nummer vorkommt), datum = Datum des Avis, brutto=0, netto=0, mwst=0, avis_betrag = genannte Zahlungssumme, avis_rechnungen = alle genannten Rechnungsnummern (z. B. ["R26-0491","4711"]).
-bezug_rechnung: bei Gutschrift, Korrektur oder Storno die Nummer der ursprünglichen Rechnung, auf die sie sich bezieht (steht meist als „zu Rechnung …“, „Bezug“, „Originalrechnung“), sonst "". Gutschriften und Korrekturen, die den Betrag mindern, mit gutschrift=true.
+bezug_rechnung: bei Gutschrift, Korrektur oder Storno die Nummer der ursprünglichen Rechnung, auf die sie sich bezieht (steht meist als „zu Rechnung …“, „Bezug“, „Originalrechnung“), sonst "". Gutschriften und Korrekturen, die den Betrag mindern (Rückgabe, Kundenrückgabe, Gutschriftsbetrag, negative Summen), mit gutschrift=true und netto/mwst/brutto NEGATIV, so wie auf dem Beleg (z. B. -162.65). art="Korrektur" bei „Korrekturrechnung“. Nur wenn eine Korrektur den Betrag ERHÖHT (Nachberechnung, wir müssen mehr zahlen): "nachberechnung":true und Beträge positiv.
 mahnung: 0 = keine Mahnung. 1 = Zahlungserinnerung, 1. Mahnung oder Mail/Schreiben, dass eine Rechnung „noch offen“ ist. 2 = 2. Mahnung. 3 = 3./letzte Mahnung, Inkasso-Androhung. Gilt auch, wenn die Rechnung selbst nur angehängt ist und Mail oder Schreiben auf die offene Zahlung hinweist; dann die Felder der angehängten Rechnung trotzdem ausfüllen. mahnung_rechnungen = alle angemahnten Rechnungsnummern.
 eigene_rechnung=true, wenn Mastercar Bornheim / VE Sportmanagement selbst die Rechnung AUSGESTELLT hat (Kundenrechnung der Werkstatt, Nummer wie R26-0491); dann bei "lieferant" den KUNDEN eintragen, dazu kennzeichen, kundennr, zahlart (falls angegeben: bar, ec/Karte, Überweisung), lohn = Arbeitslohn netto, teile = Ersatzteile netto.`, { files, tier: 'quick' });
 }
@@ -247,17 +247,28 @@ async function eingangDrop(fileList) {
       const fh = await fileHash(b.file);
       let brutto = parseNum(x.brutto), netto = parseNum(x.netto), mwst = parseNum(x.mwst);
       if (brutto == null && netto != null) brutto = r2(netto + (mwst || 0));
-      if (x.gutschrift && brutto > 0) { brutto = -brutto; if (netto) netto = -netto; if (mwst) mwst = -mwst; }
+      // Gutschrift / mindernde Korrektur / Storno = Einnahme → immer negativ (die KI liefert Beträge mal mit, mal ohne Minus)
+      const mindert = x.gutschrift || (brutto != null && brutto < 0) || (netto != null && netto < 0) || ['Gutschrift', 'Storno'].includes(x.art) || (x.art === 'Korrektur' && x.nachberechnung !== true);
+      if (mindert) { if (brutto != null) brutto = -Math.abs(brutto); if (netto) netto = -Math.abs(netto); if (mwst) mwst = -Math.abs(mwst); if (x.art !== 'Korrektur' && x.art !== 'Storno') x.gutschrift = true; }
       const partner = String(x.lieferant || '').trim() || (b.mail && b.mail.from ? b.mail.from.replace(/<.*>/, '').trim() : '');
       const nummer = String(x.nummer || '').trim();
       const schluessel = nummer ? 'E:' + (nameTokens(partner)[0] || '') + ':' + normNr(nummer) : 'F:' + fh;
       if (S.rechnungen.some(r => r.schluessel === 'F:' + fh)) { doppelt.push(b.name); return; }
       // Gleiche Rechnung schon da (auch aus der Excel, dort hat der Schlüssel noch „:R“/„:G“) → nur die PDF ergänzen
       const tok = nameTokens(partner)[0] || '';
-      const da = nummer && S.rechnungen.find(r => r.richtung === 'eingang' && r.nummer && normNr(r.nummer) === normNr(nummer) && !(brutto && (+r.brutto || 0) * brutto < 0) &&   // Gutschrift ≠ Rechnung
+      // gleiche Nummer – auch anders geschrieben („RE-0390016“ = „390016“): nur die Ziffern ohne führende Nullen vergleichen
+      const kern = n => String(n || '').replace(/\D/g, '').replace(/^0+/, ''), nk = kern(nummer);
+      const gleicheNr = r => normNr(r.nummer) === normNr(nummer) || (nk.length >= 4 && kern(r.nummer) === nk);
+      const da = nummer && S.rechnungen.find(r => r.richtung === 'eingang' && r.nummer && gleicheNr(r) && !(brutto && (+r.brutto || 0) * brutto < 0) &&   // Gutschrift ≠ Rechnung
         (r.schluessel === schluessel || (tok && (nameTokens(r.partner || '')[0] || '') === tok) || (brutto != null && eq(Math.abs(r.brutto || 0), Math.abs(brutto)))));
       if (da) return anhaengen(da, b);
       const datum = parseDate(x.datum) || todayISO();
+      // Buchung aus der Excel ohne (oder mit anders geschriebener) Rechnungsnummer: gleiche Firma, gleicher Betrag, Datum ±5 Tage, noch keine PDF → PDF dort anhängen
+      if (tok && brutto != null) {
+        const c = S.rechnungen.filter(r => r.richtung === 'eingang' && !r.datei && !DOK_ARTEN.includes(r.art) && eq(+r.brutto || 0, brutto) && (nameTokens(r.partner || '')[0] || '') === tok
+          && r.datum && Math.abs(daysBetween(r.datum, datum)) <= 5 && !(nummer && r.nummer && normNr(r.nummer) !== normNr(nummer) && !normNr(r.nummer).includes(normNr(nummer)) && !normNr(nummer).includes(normNr(r.nummer))));
+        if (c.length === 1) { if (nummer && !c[0].nummer) await DB.update('rechnungen', c[0].id, { nummer }); return anhaengen(S.rechnungen.find(r => r.id === c[0].id) || c[0], b); }
+      }
       const row = { richtung: 'eingang', nummer: nummer || null, datum, faellig: parseDate(x.faellig), partner: partner || b.name, netto, mwst, brutto: r2(brutto || 0),
         kostenart: KOSTENARTEN.includes(x.kostenart) ? x.kostenart : kostenartVorschlag('', partner),
         unterkonto: UNTERKONTEN(x.kostenart).includes(x.unterkonto) ? x.unterkonto : null, art: x.gutschrift ? 'Gutschrift' : (['Rechnung', 'Korrektur', 'Vertrag', 'Beleg'].includes(x.art) ? x.art : 'Rechnung'), iban: String(x.iban || '').replace(/\s/g, '').toUpperCase() || null,

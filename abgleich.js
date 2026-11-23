@@ -193,7 +193,12 @@ async function autoAbgleich() {
   const newZ = [], extraR = new Map(), extraP = new Map();
   // offener Betrag nur aus echten Zahlungen (auch „laut Liste bezahlt“ darf noch seine Zahlung finden)
   const paidR = new Map(); S.zuordnungen.forEach(z => paidR.set(z.rechnung_id, (paidR.get(z.rechnung_id) || 0) + (+z.betrag || 0)));
-  const restR = r => r2(sollOf(r) - (paidR.get(r.id) || 0) - (extraR.get(r.id) || 0));
+  // verknüpfte Gutschriften/Korrekturen mindern, was noch zu zahlen ist
+  const gutR = new Map(); S.rechnungen.forEach(g => { if (g.bezug_id && (+g.brutto || 0) < 0) gutR.set(g.bezug_id, (gutR.get(g.bezug_id) || 0) + Math.abs(sollOf(g))); });
+  const restR = r => r2(sollOf(r) - (paidR.get(r.id) || 0) - (extraR.get(r.id) || 0) - (gutR.get(r.id) || 0));
+  // noch keiner Rechnung zugeordnete Gutschriften (Einnahmen) – können in einer Sammel-Lastschrift abgezogen sein
+  const gutFrei = S.rechnungen.filter(g => g.richtung === 'eingang' && !g.bezug_id && (+g.brutto || 0) < 0 && g.nummer && !DOK_ARTEN.includes(g.art));
+  const gutLinks = [];
   const add = (r, pay, kind, betrag, why) => {
     betrag = r2(betrag); if (betrag <= 0.005) return;
     newZ.push({ rechnung_id: r.id, bank_id: kind === 'bank' ? pay.id : null, sumup_id: kind === 'sumup' ? pay.id : null, kasse_id: kind === 'kasse' ? pay.id : null, betrag, art: 'auto', datum: pay.datum, notiz: why });
@@ -243,6 +248,17 @@ async function autoAbgleich() {
     const P = prepText(expandNr(text)), NS = new Set(nameTok(text));
     // 1) Rechnungsnummer(n) im Verwendungszweck – auch wenn schon bezahlt (→ doppelt/überzahlt wird sichtbar)
     const byNr = pool.filter(r => r.nummer && nrHit(r.nummer, P));
+    // Sammel-Lastschrift „RNR 398565, RNR 713218“: Rechnung(en) minus Gutschrift(en) = abgebuchter Betrag
+    if (kind === 'bank' && pay.betrag < 0 && byNr.length) {
+      const gs = gutFrei.filter(g => !gutLinks.some(l => l.g === g) && nrHit(g.nummer, P));
+      const open = byNr.filter(r => restR(r) > 0.005);
+      if (gs.length && open.length && eq(r2(sum(open, restR) - sum(gs, g => Math.abs(sollOf(g)))), restPay)) {
+        const ziel = open.slice().sort((a, b) => restR(b) - restR(a))[0];
+        gs.forEach(g => { gutLinks.push({ g, r: ziel }); gutR.set(ziel.id, (gutR.get(ziel.id) || 0) + Math.abs(sollOf(g))); });
+        open.forEach(r => add(r, pay, kind, restR(r), 'Sammel-Lastschrift, Gutschrift ' + gs.map(g => g.nummer).join(', ') + ' abgezogen'));
+        return true;
+      }
+    }
     if (byNr.length === 1) {
       // Betrag passt nicht, aber die Nachbarnummer (±1/±2) hat genau diesen Betrag offen und ein ähnliches Datum → Zahlendreher/Vertipper
       const r0 = byNr[0];
@@ -316,6 +332,8 @@ async function autoAbgleich() {
     const bar = c.filter(r => r.zahlart === 'bar'), pick = bar.length === 1 ? bar[0] : c.length === 1 ? c[0] : null;
     if (pick) { add(pick, k, 'kasse', rest, 'Kasse: Betrag und Datum'); kSigBelegt.add(kSig(k)); }
   }
+  for (const { g, r } of gutLinks) await DB.update('rechnungen', g.id, { bezug_id: r.id, notiz: [g.notiz, `Mit ${r.nummer || 'Rechnung'} in der Lastschrift verrechnet`].filter(Boolean).join(' · ') });
+  if (gutLinks.length) buildIdx();
   if (newZ.length) { await DB.insert('zuordnungen', newZ); await statusNachziehen(newZ.map(z => z.rechnung_id)); }
 
   // SumUp-Auszahlungen auf dem Bankkonto ↔ einzelne SumUp-Umsätze
