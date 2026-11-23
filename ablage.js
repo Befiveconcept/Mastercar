@@ -16,11 +16,22 @@ function belegName(r, ext = 'pdf') {
   return teile.join('_') + '.' + ext;
 }
 
+// Ausgangsrechnungen heißen einfach wie ihre Nummer: „R26-1526.pdf“ (ohne Nummer bleibt der Originalname)
+function ausgangName(r, ext = 'pdf', original = '') {
+  const nr = nameTeil(r.nummer, 40); return nr ? `${nr}.${ext}` : (nameTeil(original, 150) || 'Rechnung.' + ext);
+}
+// Einmalig/bei jedem Laden: bestehende Ausgangsrechnungen auf „Nummer.pdf“ umstellen (nur der Name, die Datei bleibt)
+async function ausgangNamenAngleichen() {
+  const l = S.rechnungen.filter(r => r.richtung === 'ausgang' && r.datei && r.nummer && r.dateiname !== ausgangName(r, dateiEndung(r.datei)));
+  for (let i = 0; i < l.length; i += 20) await Promise.all(l.slice(i, i + 20).map(r => DB.update('rechnungen', r.id, { dateiname: ausgangName(r, dateiEndung(r.datei)) })));
+  return l.length;
+}
+
 /* Beleg speichern: Cloud-Speicher + (nur Eingangsrechnungen) Ablage-Ordner. Gibt {datei, dateiname} zurück. */
 // Ausgangsrechnungen behalten ihren Originalnamen (so wie die Werkstatt-Software sie erzeugt) und kommen in den Ordner „Rechnungsausgang“.
 async function belegSpeichern(r, file) {
   const dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
-  const name = dir === 'ausgang' ? nameTeil(file.name, 150) || 'Rechnung.pdf' : belegName(r, dateiEndung(file.name, file.type));
+  const name = dir === 'ausgang' ? ausgangName(r, dateiEndung(file.name, file.type), file.name) : belegName(r, dateiEndung(file.name, file.type));
   const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
   await DB.upload(datei, file);
   let dateiname = name, _ordner = false, _grund = '';
@@ -128,9 +139,10 @@ async function ablageBlob(r) { const u = await DB.fileUrl(r.datei); if (!u) retu
 
 // Nach dem Bearbeiten: Datei im Ordner auf den neuen Namen bringen (alte Datei wird ersetzt)
 async function ablageUmbenennen(r, alt) {
-  if (!r.datei || r.richtung === 'ausgang') return;   // Ausgangsrechnungen behalten ihren Originalnamen
-  const neu = belegName(r, dateiEndung(r.datei)); if (neu === alt) return;
-  const dir = await ablageOrdner(false);
+  if (!r.datei) return;
+  const aus = r.richtung === 'ausgang';   // Ausgang: „R26-1526.pdf“, Eingang: VE Sport_Firma_Art_Nummer_Datum.pdf
+  const neu = aus ? ausgangName(r, dateiEndung(r.datei)) : belegName(r, dateiEndung(r.datei)); if (neu === alt) return;
+  const dir = await ablageOrdner(false, aus ? 'ausgang' : 'eingang');
   let name = neu;
   if (dir) {
     try {
@@ -152,7 +164,7 @@ async function ablageAlle() {
   for (let i = 0; i < liste.length; i++) {
     const r = liste[i], dir = r.richtung === 'ausgang' ? dirA : dirE; busy(true, `Belege in den Ordner legen: ${i + 1} von ${liste.length}`);
     try {
-      const soll = r.richtung === 'ausgang' ? (r.dateiname || belegName(r, dateiEndung(r.datei))) : belegName(r, dateiEndung(r.datei));
+      const soll = r.richtung === 'ausgang' ? ausgangName(r, dateiEndung(r.datei), r.dateiname) : belegName(r, dateiEndung(r.datei));
       if (await ablageHat(dir, soll)) { da++; if (r.dateiname !== soll) await DB.update('rechnungen', r.id, { dateiname: soll }); continue; }
       const blob = await ablageBlob(r); if (!blob) { fehl++; continue; }
       const n = await ablageSchreiben(dir, soll, blob); await DB.update('rechnungen', r.id, { dateiname: n }); neu++;

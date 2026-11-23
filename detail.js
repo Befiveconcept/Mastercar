@@ -126,6 +126,7 @@ function rechnungForm(dir, r = null) {
         if (r.datei) await ablageUmbenennen(S.rechnungen.find(x => x.id === r.id) || r, altName);   // Beleg-Datei an neue Angaben anpassen
       } else {
         row.schluessel = key || (isA ? 'A#' : 'E#') + uid(); row.richtung = dir; row.quelle = 'manuell';
+        if (!isA && row.fix == null) row.fix = fixVorschlag(row);   // nicht ausgewählt → wie beim selben Rechnungssteller bzw. nach Kostenart
         row.status_excel = row.zahlart === 'bar' ? 'Bezahlt' : row.zahlart === 'sepa' ? 'Abbuchung offen' : 'Offen';
         if (S.rechnungen.some(x => x.schluessel === row.schluessel)) { toast('Diese Rechnungsnummer gibt es schon.'); return false; }
         const [nr] = await DB.insert('rechnungen', [row]);

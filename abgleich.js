@@ -173,7 +173,8 @@ function vorschlaege(pay, kind) {
 
 /* ---------- Automatischer Abgleich ---------- */
 async function autoAbgleich() {
-  if (typeof regelnAnwenden === 'function') await regelnAnwenden().catch(e => console.warn(e));   // eigene Regeln zuerst (z. B. Bareinzahlungen = Umbuchung)
+  if (typeof regelnAnwenden === 'function') await regelnAnwenden().catch(e => console.warn(e));
+  if (typeof fixNachziehen === 'function') await fixNachziehen().catch(e => console.warn(e));   // fehlendes „variabel / fix“ ergänzen   // eigene Regeln zuerst (z. B. Bareinzahlungen = Umbuchung)
   buildIdx();
   const newZ = [], extraR = new Map(), extraP = new Map();
   // offener Betrag nur aus echten Zahlungen (auch „laut Liste bezahlt“ darf noch seine Zahlung finden)

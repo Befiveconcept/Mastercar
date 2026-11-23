@@ -67,7 +67,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .side-foot{margin-top:auto;color:var(--muted);padding:0 8px}.side-foot .on{color:var(--ok)}
 .mainwrap{min-width:0;display:flex;flex-direction:column}
 .top{position:sticky;top:0;z-index:40;background:var(--top-bg);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 24px}
-main{padding:22px 24px 80px;max-width:1400px;width:100%;outline:none}
+main{padding:22px 24px 80px;max-width:none;width:100%;outline:none}   /* volle Fensterbreite – Tabellen so breit wie möglich */
 
 /* Begrüßung (wie im Sonnenplan) */
 .hero{position:relative;isolation:isolate;overflow:hidden;border-radius:18px;padding:22px 24px;margin-bottom:16px;background:linear-gradient(135deg,#141416 0%,#232326 60%,#2a2a05 100%);border:1px solid var(--line)}
@@ -228,6 +228,21 @@ button.k:hover{border-color:var(--y)}
 .tw.scroll::-webkit-scrollbar-track{background:#F0F0F0}.tw.scroll::-webkit-scrollbar-thumb{border-color:#F0F0F0}
 /* Spalte „Verknüpft“: Bankbuchung gefunden = grün, laut Liste bezahlt aber nicht gefunden = gelb, keine = grau */
 .tw.scroll .tb td.x-vk-bank{background:#E2EFDA;color:#375623}.tw.scroll .tb td.x-vk-warn{background:#FFF2CC;color:#7F6000}.tw.scroll .tb td.x-vk-keine{color:#808080}
+/* Prüfliste (Excel-Look „Ein- und Ausgaben“) */
+.pr-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}.pr-bar .sp{flex:1}
+.pr-tw{max-height:65vh;overflow:auto;background:#fff;border-color:#BFBFBF;border-radius:4px}
+.pr-tab{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1F1F1F;border-collapse:separate;border-spacing:0}
+.pr-tab th{background:#D6DCE4;color:#333F4F;font-weight:700;text-transform:none;letter-spacing:0;font-size:12.5px;border-right:1px solid #BFBFBF;border-bottom:1px solid #A6A6A6;padding:6px}
+.pr-tab td{padding:0;border-right:1px solid #D9D9D9;border-bottom:1px solid #D9D9D9;background:#fff;vertical-align:middle}
+.pr-tab td:first-child,.pr-tab td:nth-child(2){text-align:center;padding:2px 4px}
+.pr-tab td.c-partner,.pr-tab td.c-art,.pr-tab td.c-nummer,.pr-tab td.c-kostenart,.pr-tab td.c-fix,.pr-tab td.c-zahlart{background:#D6DCE4}
+.pr-tab td.c-datum{background:#ACB9CA}.pr-tab td.c-brutto{background:#FCE4D6}.pr-tab td.c-skonto{background:#D9E1F2}
+.pr-i{width:100%;min-width:90px;border:0;background:transparent;font:inherit;color:#1F1F1F;padding:6px 6px;outline:none}
+.pr-i:focus{background:#FFF2CC;box-shadow:inset 0 0 0 2px #217346}
+.pr-i.num{text-align:right;min-width:80px}
+.pr-tab td.c-partner .pr-i{min-width:170px}.pr-tab td.c-notiz .pr-i{min-width:200px}.pr-tab td.c-kostenart .pr-i{min-width:160px}.pr-tab td.c-iban .pr-i{min-width:200px}
+.pr-tab tr.pr-dirty td:first-child{box-shadow:inset 3px 0 0 #FFC000}
+.pr-tab tr:hover td{box-shadow:inset 0 0 0 9999px rgba(0,84,196,.06)}
 /* Spalten ausblenden */
 .tb .col-aus{display:none}
 .col-x{position:absolute;top:3px;right:10px;font-size:11px;line-height:1;padding:2px 3px;border-radius:3px;cursor:pointer;opacity:0;color:inherit;background:rgba(255,255,255,.7)}
@@ -298,7 +313,7 @@ details.xl{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding
 /* Fenster */
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto}
 .sheet{background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(560px,100%);box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column;max-height:none}
-.sheet.wide{width:min(1100px,100%)}
+.sheet.wide{width:min(1600px,100%)}
 .sheet header{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}.sheet header h2{flex:1;font-size:20px}
 .sheet-body{padding:18px}.sheet footer{display:flex;gap:10px;padding:14px 18px;border-top:1px solid var(--line)}
 .form2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -434,6 +449,7 @@ details.xl{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding
 <script src="js/avis.js"></script>
 <script src="js/zahlen.js"></script>
 <script src="js/regeln.js"></script>
+<script src="js/pruefen.js"></script>
 <script src="js/eingang.js"></script>
 <script src="js/views.js"></script>
 <script src="js/detail.js"></script>

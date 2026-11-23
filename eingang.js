@@ -16,8 +16,9 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
+{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","zahlweg":"lastschrift|ueberweisung|bar|karte|paypal|","gutschrift":false}
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
+zahlweg: wie laut Rechnung bezahlt wird – "lastschrift" (SEPA-Lastschrift, „wird abgebucht“, „Einzug“, Mandatsreferenz), "ueberweisung" (Bankverbindung zum Überweisen, „zahlbar bis“, „bitte überweisen“), "bar", "karte" (EC/Kreditkarte), "paypal"; leer, wenn nichts dazu draufsteht.
 kontoauszug=true (und sonst nichts ausfüllen), wenn es ein Kontoauszug / eine Umsatzliste einer Bank ist.
 Zahlungsavis (Zahlungsankündigung, Lastschrift-Vorabinformation, Zahlungsbestätigung/Überweisungsavis eines Kunden oder Lieferanten): ist_rechnung=true, art="Zahlungsavis", lieferant = wer das Avis geschickt hat, nummer = die Nummer des Avis (steht als Avis-Nr., Zahlungsavis-Nr., Zahlungsnummer, Belegnummer, Referenz oder Dokumentnummer – unbedingt angeben, nie leer lassen, wenn irgendeine solche Nummer vorkommt), datum = Datum des Avis, brutto=0, netto=0, mwst=0, avis_betrag = genannte Zahlungssumme, avis_rechnungen = alle genannten Rechnungsnummern (z. B. ["R26-0491","4711"]).
 bezug_rechnung: bei Gutschrift, Korrektur oder Storno die Nummer der ursprünglichen Rechnung, auf die sie sich bezieht (steht meist als „zu Rechnung …“, „Bezug“, „Originalrechnung“), sonst "". Gutschriften und Korrekturen, die den Betrag mindern, mit gutschrift=true.
@@ -58,6 +59,49 @@ async function kontoauszugImport(b) {
   const added = await DB.insert('bank', mit);
   DB.update('importe', imp.id, { neu: added.length, doppelt: rows.length - added.length }).catch(() => { });
   return { name: b.name, n: rows.length, neu: added.length, von: parseDate(j.von), bis: parseDate(j.bis), probe, summe };
+}
+
+/* Variabel / fix: 1) wie bei den bisherigen Buchungen desselben Rechnungsstellers (Mehrheit, neueste gewinnt bei Gleichstand),
+   2) sonst nach Art der Kosten: Personal/HR, Miete, Strom, Versicherung, Leasing, Telefon, Steuerberater, Verträge = fix; Material & Co. = variabel */
+const FIX_KAT = ['Personalkosten', 'Raumkosten', 'Abschreibungen', 'Zinsaufwand'];
+const FIX_UNTER = /miet|leasing|versicherung|kfz versicherung|telefon|lohn- und buchf|wartungskosten|abschluss|lizenzen|betriebliche steuern/i;
+const FIX_NAME = /strom|energie|stadtwerke|rheinenergie|\be\.?on\b|\bgas\b|\bwasser\b|\bmiete\b|vermiet|telekom|vodafone|o2|1&1|versicherung|allianz|axa|ergo|huk|leasing|aok|barmer|techniker|krankenkasse|ikk|dak|bkk|knappschaft|berufsgenossenschaft|bghm|\bbg\b|lohn|gehalt|minijob|finanzamt|steuerberat|rundfunk|gez|software|abo|lizenz/i;
+// Gleicher Rechnungssteller? Gleicher Name – oder gleiches erstes Wort, wenn es aussagekräftig ist („Dederichs“, nicht „Neue“, „Auto“, „Stadt“ …)
+const ALLGEMEIN = new Set(['neue', 'neuer', 'auto', 'autohaus', 'stadt', 'stadtwerke', 'deutsche', 'firma', 'haus', 'kfz', 'reifen', 'service', 'services', 'handel', 'media', 'medien', 'gebr', 'gebrueder', 'dr', 'die', 'der', 'das', 'tankstelle', 'total', 'bau', 'autoteile', 'werkstatt']);
+function gleicherSteller(a, b) {
+  const na = norm(a || ''), nb = norm(b || ''); if (!na || !nb) return false; if (na === nb) return true;
+  const ta = na.split(' '), tb = nb.split(' ');
+  if (ta[0] === tb[0] && ta[0].length >= 4 && !ALLGEMEIN.has(ta[0])) return true;
+  return ALLGEMEIN.has(ta[0]) && ta.length > 1 && tb.length > 1 && ta[0] === tb[0] && ta[1] === tb[1];   // „Autohaus Nolden“ = „Autohaus Nolden GmbH“
+}
+function fixVorschlag(r) {
+  if (r.partner) {
+    const vor = S.rechnungen.filter(x => x.richtung === 'eingang' && x.id !== r.id && x.fix != null && gleicherSteller(x.partner, r.partner)).sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
+    if (vor.length) { const f = vor.filter(x => x.fix).length, v = vor.length - f; return f === v ? !!vor[0].fix : f > v; }
+  }
+  if (r.art === 'Vertrag') return true;
+  if (FIX_KAT.includes(r.kostenart) || FIX_UNTER.test(r.unterkonto || '') || FIX_NAME.test(r.partner || '')) return true;
+  return false;   // Material, Ersatzteile, Werkzeug, Werbung … = variabel
+}
+// Zahlart: 1) was auf der Rechnung steht (Lastschrift/SEPA, Überweisung, bar, Karte), 2) sonst wie bisher beim selben Rechnungssteller
+function zahlartVorschlag(partner, x = {}) {
+  const w = String(x.zahlweg || '').toLowerCase();
+  if (/lastschrift|sepa|einzug/.test(w) || x.bezahlung === 'lastschrift') return 'sepa';
+  if (/ueberweis|überweis/.test(w)) return 'bank';
+  if (/bar/.test(w)) return 'bar';
+  if (/karte|ec|paypal/.test(w)) return 'ec';
+  if (!partner) return null;
+  const vor = S.rechnungen.filter(r => r.richtung === 'eingang' && r.zahlart && gleicherSteller(r.partner, partner)).sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
+  if (!vor.length) return null;
+  const n = {}; vor.forEach(r => n[r.zahlart] = (n[r.zahlart] || 0) + 1);
+  const best = Object.entries(n).sort((a, b) => b[1] - a[1] || (a[0] === vor[0].zahlart ? -1 : 1))[0][0];   // Mehrheit, bei Gleichstand die neueste
+  return best;
+}
+// Fehlende Angaben nachtragen (z. B. bei per PDF angelegten Rechnungen)
+async function fixNachziehen() {
+  const l = S.rechnungen.filter(r => r.richtung === 'eingang' && r.fix == null && !DOK_ARTEN.includes(r.art) && (+r.brutto || 0) !== 0);
+  for (let i = 0; i < l.length; i += 10) await Promise.all(l.slice(i, i + 10).map(r => DB.update('rechnungen', r.id, { fix: fixVorschlag(r) })));
+  return l.length;
 }
 
 // Ursprüngliche Rechnung zu einer Gutschrift/Korrektur finden: Nummer laut Beleg (gleicher Lieferant bevorzugt),
@@ -117,8 +161,8 @@ async function eingangDrop(fileList) {
   busy(true, `${belege.length} Beleg${belege.length === 1 ? '' : 'e'}` + (DB.aiOn ? ' – KI liest …' : ' …'));
   // PDF an eine schon vorhandene Rechnung (z. B. aus der Excel) hängen statt sie doppelt anzulegen
   const anhaengen = async (r, b) => {
-    // Ausgangsrechnung mit älterer, umbenannter PDF: das Original ersetzt sie (Name wie im Original, alte Datei wird entfernt)
-    if (r.datei && r.richtung === 'ausgang' && nameTeil(b.name, 150) !== r.dateiname) {
+    // Ausgangsrechnung, deren Datei noch den alten Namen hat: neu ablegen als „R26-1526.pdf“, alte Datei entfernen
+    if (r.datei && r.richtung === 'ausgang' && !/^R\d{2}-/i.test(r.dateiname || '')) {
       const alt = r.datei; await belegAnhaengen(r, b.file); await DB.removeFile(alt).catch(e => console.warn(e));
       umbenannt.push(S.rechnungen.find(x => x.id === r.id) || r); return;
     }
@@ -209,11 +253,12 @@ async function eingangDrop(fileList) {
       const row = { richtung: 'eingang', nummer: nummer || null, datum, faellig: parseDate(x.faellig), partner: partner || b.name, netto, mwst, brutto: r2(brutto || 0),
         kostenart: KOSTENARTEN.includes(x.kostenart) ? x.kostenart : kostenartVorschlag('', partner),
         unterkonto: UNTERKONTEN(x.kostenart).includes(x.unterkonto) ? x.unterkonto : null, art: x.gutschrift ? 'Gutschrift' : (['Rechnung', 'Korrektur', 'Vertrag', 'Beleg'].includes(x.art) ? x.art : 'Rechnung'), iban: String(x.iban || '').replace(/\s/g, '').toUpperCase() || null,
-        beschreibung: String(x.beschreibung || '').trim() || (b.mail ? b.mail.subject : null), zahlart: x.bezahlung === 'lastschrift' ? 'bank' : null,
+        beschreibung: String(x.beschreibung || '').trim() || (b.mail ? b.mail.subject : null), zahlart: zahlartVorschlag(partner, x),
         datei: null, dateiname: b.name, quelle: DB.aiOn && x.brutto != null ? 'ki' : 'manuell', geprueft: false, schluessel,
-        status_excel: x._mahnStatus ? x._mahnStatus : x.bezahlung === 'lastschrift' ? 'Abbuchung offen' : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : 'Offen',
+        status_excel: x._mahnStatus ? x._mahnStatus : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : (x.bezahlung === 'lastschrift' || zahlartVorschlag(partner, x) === 'sepa') ? 'Abbuchung offen' : 'Offen',
         notiz: x.bezahlung === 'lastschrift' ? 'Laut Beleg per Lastschrift' : x.bezahlung === 'bereits_bezahlt' ? 'Laut Beleg bereits bezahlt' : null };
       // Datei nach Schema benennen: VE Sport_Lieferant_Art_Nummer_Datum.pdf – in der Cloud und (falls gewählt) im Ablage-Ordner
+      row.fix = fixVorschlag(row);   // variabel / fix wie bisher beim selben Rechnungssteller
       // Gutschrift / Korrektur / Storno zu einer Rechnung → direkt verknüpfen (wird dort verrechnet)
       if (x.art === 'Korrektur' || x.art === 'Storno') row.art = x.art;
       const orig = (['Gutschrift', 'Korrektur', 'Storno'].includes(row.art) || row.brutto < 0) ? bezugFinden(x.bezug_rechnung, partner, row) : null;
@@ -231,12 +276,10 @@ async function eingangDrop(fileList) {
   const res = await autoAbgleich().catch(() => ({ n: 0 }));
   const nurAusgang = (ausgangNeu.length || ergaenzt.some(r => r.richtung === 'ausgang')) && !neu.length && !avise.length && !ergaenzt.some(r => r.richtung === 'eingang');
   busy(false); UI.view = auszuege.length && !neu.length && !ergaenzt.length && !avise.length && !ausgangNeu.length ? 'bank' : nurAusgang ? 'ausgang' : 'eingang'; render();
-  openSheet({
-    title: 'Belege übernommen', noOk: true, wide: true, html: `
-    ${neu.length ? `<p><b>${neu.length}</b> Eingangsrechnung${neu.length === 1 ? '' : 'en'} angelegt${DB.aiOn ? ' – von der KI ausgelesen, bitte kurz prüfen' : ' – bitte Beträge eintragen (KI nur online)'}.${res.n ? ' ' + res.n + ' Zahlung(en) automatisch zugeordnet.' : ''}</p>
-    ${ablageMeldung(ABLAGE_LOG.slice(logStart))}<p class="small muted">Dateiname: VE Sport_Firma_Art_Nummer_Datum</p>
-    <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
-    ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+  // Neue Eingangsrechnungen → gleich als Prüfliste im Excel-Look (prüfen, korrigieren, freigeben); alles andere darüber
+  const kopf = `${neu.length ? `<p><b>${neu.length}</b> Eingangsrechnung${neu.length === 1 ? '' : 'en'} ${DB.aiOn ? 'von der KI ausgelesen' : 'angelegt (Beträge bitte eintragen – KI nur online)'}.${res.n ? ' ' + res.n + ' Zahlung(en) automatisch zugeordnet.' : ''}</p>` : ''}
+    ${ablageMeldung(ABLAGE_LOG.slice(logStart))}`;
+  const weitere = `
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${umbenannt.length ? `<p><b>${umbenannt.length}</b> Ausgangsrechnung${umbenannt.length === 1 ? '' : 'en'}: PDF durch das Original ersetzt – Name jetzt wie im Original (in der App, im Ordner und ab der nächsten Sicherung):</p><div class="tw"><table class="tb click"><tbody>${umbenannt.slice(0, 50).map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '')}</td><td>${esc(r.partner || '')}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>${umbenannt.length > 50 ? `<p class="small muted">… und ${umbenannt.length - 50} weitere</p>` : ''}` : ''}
     ${ausgangNeu.length ? `<p><b>${ausgangNeu.length}</b> Ausgangsrechnung${ausgangNeu.length === 1 ? '' : 'en'} aus der PDF angelegt (Dateiname bleibt wie er ist) – bitte kurz prüfen:</p><div class="tw"><table class="tb click"><tbody>${ausgangNeu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer)}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
@@ -247,8 +290,9 @@ async function eingangDrop(fileList) {
     ${avise.length ? `<p><b>${avise.length}</b> Zahlungsavis abgelegt (unter „Zahlungsavis“, nicht im Rechnungseingang):</p><div class="tw"><table class="tb click"><tbody>${avise.map(({ a, bezug }) => `<tr data-act="avisD" data-id="${a.id}"><td>📨 ${esc(a.partner || '')}</td><td>${fmtD(a.datum)}</td><td class="num">${a.betrag != null ? fmtE(a.betrag) : ''}</td><td class="small">${bezug.length ? '→ ' + bezug.map(x => esc(x.nummer || '') + ' (' + esc(x.status_excel || '') + ')').join(', ') : '<span class="muted">keine passende Rechnung gefunden</span>'}</td><td>${a.bank_id ? badge({ cls: 'st-ok', label: '✓ in Bank' }) : badge({ cls: 'st-warn', label: 'Abbuchung offen' })}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${doppelt.length ? `<div class="warn">Schon vorhanden, nicht nochmal angelegt: ${doppelt.map(esc).join(', ')}</div>` : ''}
     ${keine.length ? `<div class="note">Keine Rechnung (übersprungen): ${keine.map(esc).join(', ')}</div>` : ''}
-    ${fehler.length ? `<div class="warn">Probleme: ${fehler.map(esc).join('<br>')}</div>` : ''}`
-  });
+    ${fehler.length ? `<div class="warn">Probleme: ${fehler.map(esc).join('<br>')}</div>` : ''}`;
+  if (neu.length) pruefAnsicht(neu.map(r => r.id), kopf + (weitere.trim() ? `<details class="xl"><summary>Weitere Ergebnisse dieses Stapels</summary>${weitere}</details>` : ''));
+  else openSheet({ title: 'Belege übernommen', noOk: true, wide: true, html: kopf + weitere });
 }
 
 // Excel/CSV erkannt: anhand der Spalten raten, welcher Import gemeint ist

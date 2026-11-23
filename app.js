@@ -201,6 +201,7 @@ Object.assign(A, {
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
+  pruefen: () => pruefAnsicht(),
   regelNeu: async () => {
     const t = ($('#rgText') || {}).value || ''; if (t.trim().length < 5) return toast('Bitte erst den Hinweis in eigenen Worten eintippen.');
     busy(true, DB.aiOn ? 'KI macht daraus eine Regel …' : 'Regel vorbereiten …');
