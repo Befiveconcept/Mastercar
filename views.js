@@ -193,6 +193,31 @@ function zahlungenFenster(id) {
 // Kurzform für den Filter „Zahlung“: Bank / SumUp / Kasse / bar / keine
 const zahlQuelle = r => { const zs = IDX.zByR.get(r.id) || []; if (!zs.length) return rStatus(r).key === 'extern' ? 'bez. ohne Zuordnung' : 'keine'; return [...new Set(zs.map(z => z.bank_id ? 'Bank' : z.sumup_id ? 'SumUp' : z.kasse_id ? 'Kasse' : 'bar'))].join(' + '); };
 const DOK_ARTEN = ['Zahlungsavis', 'Mahnung'];   // reine Dokumente (Betrag 0), keine Buchung
+/* Mögliche doppelt erfasste Rechnungen: gleiche Firma, gleicher Betrag, gleiches Datum.
+   „sicher“ = zusätzlich dieselbe Rechnungsnummer (Ziffern ohne führende Nullen); „wahrscheinlich“ = bei einem fehlt die Nummer (nur Eingang).
+   Steht in der Notiz „kein Duplikat“, wird der Eintrag nicht mehr markiert. Liefert Map id → { sicher, mit: [andere Rechnungen] } */
+const KEIN_DUP = /kein(e)?\s*(duplikat|doppel)/i;
+function rDoppelt(dir) {
+  const kern = n => String(n || '').replace(/\D/g, '').replace(/^0+/, ''), firma = p => nameTokens(p)[0] || norm(p);
+  const g = new Map();
+  S.rechnungen.forEach(r => {
+    if (r.richtung !== dir || DOK_ARTEN.includes(r.art) || !r.datum || Math.abs(+r.brutto || 0) < 0.005 || KEIN_DUP.test(r.notiz || '')) return;
+    const k = firma(r.partner) + '|' + r2(r.brutto) + '|' + r.datum; if (!g.has(k)) g.set(k, []); g.get(k).push(r);
+  });
+  const M = new Map();
+  for (const l of g.values()) {
+    if (l.length < 2) continue;
+    l.forEach(r => {
+      // verschiedene Rechnungsnummern = verschiedene Rechnungen (z. B. zwei Ölwechsel am selben Tag) → nicht markieren
+      // gleiche Nummer: genau gleich (ohne Sonderzeichen) oder dieselben Ziffern („RE-0390016“ = „390016“)
+      const gleich = (a, b) => !!normNr(a) && (normNr(a) === normNr(b) || (kern(a).length >= 3 && kern(a) === kern(b)));
+      const mit = l.filter(x => x.id !== r.id && x.bezug_id !== r.id && r.bezug_id !== x.id && (gleich(r.nummer, x.nummer) || (dir === 'eingang' && (!normNr(r.nummer) || !normNr(x.nummer)))));
+      if (!mit.length) return;
+      M.set(r.id, { sicher: mit.some(x => gleich(r.nummer, x.nummer)), mit });
+    });
+  }
+  return M;
+}
 function filterR(list, f) {
   if (f === 'alle') return list;
   if (f === 'offen') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key));
@@ -285,7 +310,9 @@ function viewRechnungen(dir) {
   const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
     [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']],
     dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
-  list = filterR(list, UI.filt[view]);
+  const DUP = rDoppelt(dir), dupN = [...DUP.values()].filter(d => d.sicher).length, dupW = DUP.size - dupN;
+  if (DUP.size) chipOpts.push(['dup', '⚠ Doppelt? · ' + DUP.size]);
+  list = UI.filt[view] === 'dup' ? list.filter(x => DUP.has(x.r.id)) : filterR(list, UI.filt[view]);
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
   // Standard-Sortierung: Firmenname (A–Z), dann Datum (ältestes oben), dann Nummer – ein Klick auf eine Spalte sortiert anders
   list.sort((a, b) => String(a.r.partner || '').trim().localeCompare(String(b.r.partner || '').trim(), 'de', { sensitivity: 'base' })
@@ -318,6 +345,7 @@ function viewRechnungen(dir) {
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
   ${!isA ? `<div class="dropzone" data-act="pickBeleg" role="button" tabindex="0"><b>Rechnungen hierher ziehen</b><span>PDF, Foto oder die ganze E-Mail aus Outlook – auch mehrere auf einmal. ${DB.aiOn ? 'Die KI liest Lieferant, Nummer, Beträge und Kostenart aus.' : '(Auslesen per KI nur in der Online-Version.)'}</span></div>` : ''}
+  ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
   <div class="filters">${chips(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)} <span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
@@ -340,7 +368,7 @@ function viewRechnungen(dir) {
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
     <td class="verk ${(() => { const q = zahlQuelle(r); return /bank/i.test(q) ? 'x-vk-bank' : q === 'keine' ? 'x-vk-keine' : /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
-    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
+    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 

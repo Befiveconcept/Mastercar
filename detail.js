@@ -15,6 +15,8 @@ async function rechnungDetail(id) {
     <div class="det ${r.datei ? 'with-doc' : ''}">
       <div>
         <div class="det-head"><label class="small muted">Status</label> ${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: r.quelle === 'ki' ? 'von KI gelesen – bitte prüfen' : 'nicht geprüft' })}</div>
+        ${(() => { const du = rDoppelt(r.richtung).get(r.id); if (!du) return '';
+          return `<div class="warn">⚠ ${du.sicher ? 'Doppelt erfasst' : 'Wahrscheinlich doppelt erfasst'} – gleicher Eintrag:<ul class="pays">${du.mit.map(x => `<li data-act="rechnung" data-id="${x.id}" style="cursor:pointer"><span>${esc(x.nummer || 'ohne Nr.')} · ${esc(x.partner || '')} · ${fmtD(x.datum)}${x.status_excel ? ' · ' + esc(x.status_excel) : ''}${(IDX.zByR.get(x.id) || []).length ? ' · Zahlung zugeordnet' : ''}${x.datei ? ' · mit PDF' : ''}</span><b>${fmtE(x.brutto)}</b></li>`).join('')}</ul><span class="small">Den überzähligen Eintrag löschen (am besten den ohne Zahlung und ohne PDF). Ist es keine Doppelung, in die Notiz „kein Duplikat“ schreiben.</span></div>`; })()}
         <dl class="dl">
           <dt>${isA ? 'Kunde' : 'Lieferant'}</dt><dd>${esc(r.partner || '–')}</dd>
           <dt>Rechnungsnr.</dt><dd class="mono">${esc(r.nummer || '–')}</dd>
