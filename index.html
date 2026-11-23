@@ -162,6 +162,38 @@ button.k:hover{border-color:var(--y)}
 .abg-b{padding:0 16px 16px}.abg-b>p{margin:0 0 10px}
 .abg .tw.scroll{max-height:calc(100vh - 160px)}
 .tb td.mono{white-space:nowrap}
+/* ===== Tabellen im Excel-Look: weiß, feines Gitter, Kopfzeile und Hervorhebungen wie in der Excel-Mappe ===== */
+:root{--xl-bg:#FFFFFF;--xl-ink:#1F1F1F;--xl-muted:#6B6B6B;--xl-grid:#D9D9D9;--xl-head:#FFFF00;--xl-head-ink:#000000;--xl-filter:#F2F2F2;--xl-hover:#E8F0FE;--xl-sel:#CCE0FF;
+  --xl-ok:#C6EFCE;--xl-ok-ink:#006100;--xl-bad:#FFC7CE;--xl-bad-ink:#9C0006;--xl-warn:#FFEB9C;--xl-warn-ink:#9C5700;--xl-info:#DDEBF7;--xl-info-ink:#1F4E78}
+.tw.scroll{background:var(--xl-bg);border-color:#BFBFBF;border-radius:4px}
+.tw.scroll .tb{font-family:Aptos,Calibri,'Segoe UI',Arial,sans-serif;font-size:13.5px;color:var(--xl-ink);border-collapse:separate;border-spacing:0}
+.tw.scroll .tb td{border-bottom:1px solid var(--xl-grid);border-right:1px solid var(--xl-grid);padding:5px 8px;background:var(--xl-bg);color:var(--xl-ink)}
+.tw.scroll .tb th{border-bottom:1px solid #A6A6A6;border-right:1px solid #BFBFBF;padding:6px 8px;background:var(--xl-head);color:var(--xl-head-ink);font-weight:700;text-transform:none;letter-spacing:0;font-size:13px}
+.tw.scroll .tb tr.frow th{background:var(--xl-filter);border-bottom:1px solid #A6A6A6}
+.tw.scroll .tb .cf{background:#fff;color:var(--xl-ink);border-color:#C8C8C8;border-radius:2px}
+.tw.scroll .tb .cf.on{background:#FFF2CC;border-color:#BF9000}
+.tw.scroll .tb th .sa{opacity:.55}.tw.scroll .tb th.srt.on .sa{opacity:1;color:var(--xl-head-ink)}
+.tw.scroll .tb.click tbody tr:hover td{background:var(--xl-hover)}
+.tw.scroll .tb td.stick{background:var(--xl-bg);box-shadow:2px 0 0 #A6A6A6}.tw.scroll .tb.click tbody tr:hover td.stick{background:var(--xl-hover)}
+.tw.scroll .tb thead th.stick{background:var(--xl-head)}.tw.scroll .tb tr.frow th.stick{background:var(--xl-filter)}
+.tw.scroll .tb .muted,.tw.scroll .tb small{color:var(--xl-muted)}
+.tw.scroll .tb .neg{color:#C00000}.tw.scroll .tb .pos{color:#00703C}
+.tw.scroll .tb .zweck{color:#404040}
+.tw.scroll .tb tr.unchecked td:first-child{box-shadow:inset 3px 0 0 #FFC000}
+/* Status-Zellen in Excel-Farben (wie bedingte Formatierung) */
+.tw.scroll .tb .badge,.tw.scroll .tb .st-sel{border-radius:3px}
+.tw.scroll .tb .st-ok{background:var(--xl-ok);color:var(--xl-ok-ink)}.tw.scroll .tb .st-late{background:var(--xl-bad);color:var(--xl-bad-ink)}
+.tw.scroll .tb .st-bad{background:#FF0000;color:#fff}.tw.scroll .tb .st-warn{background:var(--xl-warn);color:var(--xl-warn-ink)}
+.tw.scroll .tb .st-info{background:var(--xl-info);color:var(--xl-info-ink)}.tw.scroll .tb .st-open{background:#F2F2F2;color:#404040}.tw.scroll .tb .st-ai{background:#FFF2CC;color:#7F6000}
+.tw.scroll .tb .st-sel option{background:#fff;color:#1F1F1F}
+.tw.scroll::-webkit-scrollbar-track{background:#F0F0F0}.tw.scroll::-webkit-scrollbar-thumb{border-color:#F0F0F0}
+/* Spaltenbreite ziehen */
+.col-gr{position:absolute;top:0;right:-4px;width:9px;height:100%;cursor:col-resize;z-index:3;touch-action:none}
+.col-gr::after{content:"";position:absolute;left:4px;top:25%;height:50%;width:1px;background:var(--line)}
+.col-gr:hover::after,.tw.col-resize .col-gr::after{background:var(--y);width:3px;left:3px}
+.tw.col-resize{cursor:col-resize;user-select:none}
+.tb .fix-w{overflow:hidden;text-overflow:ellipsis}.tb th.fix-w{white-space:nowrap}
+@media (max-width:860px){.col-gr{width:16px;right:-8px}}
 /* Bezahlen */
 .pz{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:12px;background:var(--surface);padding:12px 14px;margin:10px 0;transition:opacity .3s}
 .pz.spaet{border-left-color:var(--bad)}.pz.fertig{opacity:0}

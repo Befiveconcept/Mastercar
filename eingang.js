@@ -16,13 +16,13 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
+{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","gutschrift":false}
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
 kontoauszug=true (und sonst nichts ausfüllen), wenn es ein Kontoauszug / eine Umsatzliste einer Bank ist.
 Zahlungsavis (Zahlungsankündigung, Lastschrift-Vorabinformation, Zahlungsbestätigung/Überweisungsavis eines Kunden oder Lieferanten): ist_rechnung=true, art="Zahlungsavis", lieferant = wer das Avis geschickt hat, nummer = die Nummer des Avis (steht als Avis-Nr., Zahlungsavis-Nr., Zahlungsnummer, Belegnummer, Referenz oder Dokumentnummer – unbedingt angeben, nie leer lassen, wenn irgendeine solche Nummer vorkommt), datum = Datum des Avis, brutto=0, netto=0, mwst=0, avis_betrag = genannte Zahlungssumme, avis_rechnungen = alle genannten Rechnungsnummern (z. B. ["R26-0491","4711"]).
 bezug_rechnung: bei Gutschrift, Korrektur oder Storno die Nummer der ursprünglichen Rechnung, auf die sie sich bezieht (steht meist als „zu Rechnung …“, „Bezug“, „Originalrechnung“), sonst "". Gutschriften und Korrekturen, die den Betrag mindern, mit gutschrift=true.
 mahnung: 0 = keine Mahnung. 1 = Zahlungserinnerung, 1. Mahnung oder Mail/Schreiben, dass eine Rechnung „noch offen“ ist. 2 = 2. Mahnung. 3 = 3./letzte Mahnung, Inkasso-Androhung. Gilt auch, wenn die Rechnung selbst nur angehängt ist und Mail oder Schreiben auf die offene Zahlung hinweist; dann die Felder der angehängten Rechnung trotzdem ausfüllen. mahnung_rechnungen = alle angemahnten Rechnungsnummern.
-eigene_rechnung=true, wenn Mastercar Bornheim / VE Sportmanagement selbst die Rechnung AUSGESTELLT hat (Kundenrechnung der Werkstatt, Nummer wie R26-0491); dann bei "lieferant" den Kunden eintragen.`, { files, tier: 'quick' });
+eigene_rechnung=true, wenn Mastercar Bornheim / VE Sportmanagement selbst die Rechnung AUSGESTELLT hat (Kundenrechnung der Werkstatt, Nummer wie R26-0491); dann bei "lieferant" den KUNDEN eintragen, dazu kennzeichen, kundennr, zahlart (falls angegeben: bar, ec/Karte, Überweisung), lohn = Arbeitslohn netto, teile = Ersatzteile netto.`, { files, tier: 'quick' });
 }
 
 /* ---------- Kontoauszug als PDF (oder Foto): KI liest alle Buchungen → Bank, gleicher Schlüssel wie beim CSV/Excel-Import,
@@ -91,7 +91,9 @@ function korbRender(auf) {
     <ul>${KORB.map((f, i) => `<li><span>${korbIcon(f)}</span><span class="kn" title="${esc(f.name)}">${esc(f.name)}</span><small class="muted">${kb(f.size)}</small><button class="icon-btn" data-act="korbDel" data-i="${i}" aria-label="${esc(f.name)} entfernen">✕</button></li>`).join('')}</ul>
     <p class="small muted">Weitere Dateien einfach ins Fenster ziehen – sie kommen dazu.</p>
     ${ablageMoeglich() ? (ABLAGE ? `<p class="small">📁 Umbenannte Belege kommen in: <b>${esc(ABLAGE.name)}</b></p>`
-      : `<div class="warn small">Noch kein OneDrive-Ordner gewählt – die Belege würden nur in der App liegen. <button class="btn sm" data-act="ablageWahl">📁 Ordner wählen</button></div>`) : ''}
+      : `<div class="warn small">Noch kein OneDrive-Ordner gewählt – die Belege würden nur in der App liegen. <button class="btn sm" data-act="ablageWahl" data-art="eingang">📁 Ordner wählen</button></div>`) : ''}
+    ${ablageMoeglich() ? (ABLAGE_A ? `<p class="small">📁 Ausgangsrechnungen (Originalname) kommen in: <b>${esc(ABLAGE_A.name)}</b></p>`
+      : `<div class="note small">Für eure eigenen Ausgangsrechnungen ist noch kein Ordner gewählt. <button class="btn sm" data-act="ablageWahl" data-art="ausgang">📁 Ordner Rechnungsausgang</button></div>`) : ''}
     <div class="btnrow"><button class="btn primary" data-act="korbGo">✓ Alle ${KORB.length} verarbeiten</button><button class="btn" data-act="korbPick">＋ Dateien</button><button class="btn" data-act="korbLeer">Leeren</button></div>`;
 }
 async function korbVerarbeiten() {
@@ -104,11 +106,11 @@ async function eingangDrop(fileList) {
   const tables = files.filter(isTable);
   if (tables.length) { tables.forEach(f => importAuto(f)); }
   const docs = files.filter(f => !isTable(f)); if (!docs.length) return;
-  const ablage = await ablageOrdner(true), logStart = ABLAGE_LOG.length;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
+  const ablage = await ablageOrdner(true), ablageA = await ablageOrdner(true, 'ausgang'), logStart = ABLAGE_LOG.length;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
-  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [];
+  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [], ausgangNeu = [];
   buildIdx();
   // Viele PDFs: immer 3 gleichzeitig von der KI lesen lassen
   let fertig = 0;
@@ -170,7 +172,21 @@ async function eingangDrop(fileList) {
       if (x && x.ist_rechnung === false) { keine.push(b.name); return; }
       x = x || {};
       if (x.art === 'Zahlungsavis') return avisAnlegen(x, b);
-      if (x.eigene_rechnung) { const r = ausgangAusText(x.nummer); if (r) return anhaengen(r, b); fehler.push(`${b.name}: eigene Rechnung ${x.nummer || ''} – nicht in der App gefunden (erst das Werkstatt Journal importieren)`); return; }
+      if (x.eigene_rechnung) {
+        const r = ausgangAusText(x.nummer) || ausgangAusText(b.name); if (r) return anhaengen(r, b);
+        // Noch nicht im Werkstatt Journal: Ausgangsrechnung aus der PDF anlegen (Originalname, Ordner „Rechnungsausgang“)
+        const nummer = String(x.nummer || '').trim(), datum = parseDate(x.datum) || todayISO();
+        if (!nummer) { fehler.push(`${b.name}: eigene Rechnung ohne erkennbare Nummer – bitte von Hand anlegen`); return; }
+        const za = /bar/i.test(x.zahlart) ? 'bar' : /ec|karte/i.test(x.zahlart) ? 'ec' : /ueberw|überw|bank/i.test(x.zahlart) ? 'bank' : null;
+        const brutto = parseNum(x.brutto), netto = parseNum(x.netto);
+        const row = { richtung: 'ausgang', nummer, datum, faellig: parseDate(x.faellig), partner: String(x.lieferant || '').trim() || 'Kunde', kennzeichen: String(x.kennzeichen || '').toUpperCase().trim() || null,
+          kundennr: String(x.kundennr || '').trim() || null, brutto: r2(brutto || 0), netto, mwst: parseNum(x.mwst), lohn: parseNum(x.lohn), teile: parseNum(x.teile), zahlart: za,
+          status_excel: za === 'bar' || za === 'ec' ? 'Bezahlt' : 'Offen', quelle: 'ki', geprueft: false, schluessel: 'A:' + normNr(nummer), dateiname: b.name };
+        Object.assign(row, await belegSpeichern(row, b.file));
+        const [neuA] = await DB.insert('rechnungen', [row]); if (!neuA) { doppelt.push(b.name); return; }
+        if (za === 'bar') await DB.insert('zuordnungen', [{ rechnung_id: neuA.id, betrag: neuA.brutto, art: 'bar', datum, notiz: 'Laut Rechnung bar bezahlt' }]);
+        ausgangNeu.push(neuA); return;
+      }
       const fh = await fileHash(b.file);
       let brutto = parseNum(x.brutto), netto = parseNum(x.netto), mwst = parseNum(x.mwst);
       if (brutto == null && netto != null) brutto = r2(netto + (mwst || 0));
@@ -208,7 +224,8 @@ async function eingangDrop(fileList) {
   await Promise.all([0, 1, 2].map(async () => { while (warte.length) await eins(warte.shift()); }));
   busy(true, 'Gleiche mit Bank ab …');
   const res = await autoAbgleich().catch(() => ({ n: 0 }));
-  busy(false); UI.view = auszuege.length && !neu.length && !ergaenzt.length && !avise.length ? 'bank' : 'eingang'; render();
+  const nurAusgang = (ausgangNeu.length || ergaenzt.some(r => r.richtung === 'ausgang')) && !neu.length && !avise.length && !ergaenzt.some(r => r.richtung === 'eingang');
+  busy(false); UI.view = auszuege.length && !neu.length && !ergaenzt.length && !avise.length && !ausgangNeu.length ? 'bank' : nurAusgang ? 'ausgang' : 'eingang'; render();
   openSheet({
     title: 'Belege übernommen', noOk: true, wide: true, html: `
     ${neu.length ? `<p><b>${neu.length}</b> Eingangsrechnung${neu.length === 1 ? '' : 'en'} angelegt${DB.aiOn ? ' – von der KI ausgelesen, bitte kurz prüfen' : ' – bitte Beträge eintragen (KI nur online)'}.${res.n ? ' ' + res.n + ' Zahlung(en) automatisch zugeordnet.' : ''}</p>
@@ -216,6 +233,7 @@ async function eingangDrop(fileList) {
     <div class="tw"><table class="tb click"><thead><tr><th>Lieferant</th><th>Nr.</th><th>Datum</th><th class="num">Brutto</th><th>Kostenart</th></tr></thead><tbody>
     ${neu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(r.partner)}</td><td>${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td>${esc(r.kostenart || '–')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${ausgangNeu.length ? `<p><b>${ausgangNeu.length}</b> Ausgangsrechnung${ausgangNeu.length === 1 ? '' : 'en'} aus der PDF angelegt (Dateiname bleibt wie er ist) – bitte kurz prüfen:</p><div class="tw"><table class="tb click"><tbody>${ausgangNeu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer)}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${auszuege.length ? `<p><b>${auszuege.length}</b> ${auszuege.length === 1 ? 'Kontoauszug' : 'Kontoauszüge'} eingelesen und mit den Ein- und Ausgaben abgeglichen${res.n ? ` – <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} automatisch zugeordnet` : ''}:</p><div class="tw"><table class="tb click"><tbody>${auszuege.map(x => `<tr><td>🏦 ${esc(x.name)}</td><td>${x.von ? fmtD(x.von) + ' – ' + fmtD(x.bis) : ''}</td><td class="num">${x.n} Buchungen</td><td>${x.neu} neu${x.n - x.neu ? ', ' + (x.n - x.neu) + ' schon da' : ''}</td><td>${x.probe === 'ok' ? badge({ cls: 'st-ok', label: '✓ Saldo stimmt' }) : x.probe ? badge({ cls: 'st-warn', label: x.probe }) : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${verknuepft.length ? `<p><b>${verknuepft.length}</b> Gutschrift${verknuepft.length === 1 ? '' : 'en'}/Korrektur${verknuepft.length === 1 ? '' : 'en'} direkt mit der Rechnung verknüpft:</p><div class="tw"><table class="tb click"><tbody>${verknuepft.map(({ g, r }) => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(g.art || 'Gutschrift')} ${esc(g.nummer || '')}</td><td class="num">${fmtE(g.brutto)}</td><td>→ ${esc(r.nummer || '')} ${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>noch offen ${fmtE(Math.max(0, rStatus(r).offen))}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${mahnungen.length ? `<p><b>${mahnungen.length}</b> Mahnung${mahnungen.length === 1 ? '' : 'en'} erkannt:</p><div class="tw"><table class="tb click"><tbody>${mahnungen.map(m => m.ziele.length ? m.ziele.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(m.label)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>→ Status jetzt <b>${esc(r.status_excel)}</b></td></tr>`).join('')

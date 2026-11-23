@@ -17,36 +17,37 @@ function belegName(r, ext = 'pdf') {
 }
 
 /* Beleg speichern: Cloud-Speicher + (nur Eingangsrechnungen) Ablage-Ordner. Gibt {datei, dateiname} zurück. */
+// Ausgangsrechnungen behalten ihren Originalnamen (so wie die Werkstatt-Software sie erzeugt) und kommen in den Ordner „Rechnungsausgang“.
 async function belegSpeichern(r, file) {
-  const name = belegName(r, dateiEndung(file.name, file.type)), dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
+  const dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
+  const name = dir === 'ausgang' ? nameTeil(file.name, 150) || 'Rechnung.pdf' : belegName(r, dateiEndung(file.name, file.type));
   const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
   await DB.upload(datei, file);
   let dateiname = name, _ordner = false, _grund = '';
-  if (dir === 'eingang') {
-    const ord = await ablageOrdner(false);
-    if (!ord) _grund = !ablageMoeglich() ? 'Browser kann keine Ordner (Chrome/Edge nehmen)' : !ABLAGE ? 'kein Ordner gewählt' : 'kein Zugriff auf den Ordner erlaubt';
-    else { try { dateiname = await ablageSchreiben(ord, name, file); _ordner = true; } catch (e) { console.warn(e); _grund = 'Schreiben fehlgeschlagen: ' + (e.message || e.name); } }
-    ABLAGE_LOG.push({ name: dateiname, ok: _ordner, grund: _grund });
-  }
+  const ord = await ablageOrdner(false, dir);
+  if (!ord) _grund = !ablageMoeglich() ? 'Browser kann keine Ordner (Chrome/Edge nehmen)' : !ablageVon(dir) ? `kein Ordner für ${dir === 'ausgang' ? 'Rechnungsausgang' : 'Rechnungseingang'} gewählt` : 'kein Zugriff auf den Ordner erlaubt';
+  else { try { dateiname = await ablageSchreiben(ord, name, file); _ordner = true; } catch (e) { console.warn(e); _grund = 'Schreiben fehlgeschlagen: ' + (e.message || e.name); } }
+  ABLAGE_LOG.push({ name: dateiname, ok: _ordner, grund: _grund, art: dir, ordner: ord ? ord.name : '' });
   return { datei, dateiname, _ordner, _grund };   // Felder mit _ werden nicht gespeichert
 }
 const ABLAGE_LOG = [];   // was wurde (nicht) in den Ordner gelegt – für die Rückmeldung
 function ablageMeldung(log) {
   if (!log.length) return '';
-  const ok = log.filter(l => l.ok), nein = log.filter(l => !l.ok);
-  return `<div class="${nein.length ? 'warn' : 'note'} small">${ok.length ? `📁 ${ok.length} Datei${ok.length === 1 ? '' : 'en'} im Ordner „${esc(ABLAGE ? ABLAGE.name : '')}“ gespeichert.` : ''}
+  const ok = log.filter(l => l.ok), nein = log.filter(l => !l.ok), proOrdner = {};
+  ok.forEach(l => proOrdner[l.ordner] = (proOrdner[l.ordner] || 0) + 1);
+  return `<div class="${nein.length ? 'warn' : 'note'} small">${Object.entries(proOrdner).map(([o, n]) => `📁 ${n} Datei${n === 1 ? '' : 'en'} im Ordner „${esc(o)}“ gespeichert.`).join(' ')}
     ${nein.length ? `⚠ ${nein.length} Datei${nein.length === 1 ? '' : 'en'} <b>nicht</b> im Ordner gespeichert – ${esc([...new Set(nein.map(l => l.grund))].join('; '))}. Unter Einstellungen → Beleg-Ablage den Ordner wählen bzw. „Vorhandene Belege jetzt ablegen“ klicken.` : ''}</div>`;
 }
 // Datei (PDF, Foto oder Mail) an eine bestimmte Rechnung hängen – Mail: erster PDF-Anhang, sonst Mailtext als PDF
 async function belegZuRechnung(id, file) {
   const r = S.rechnungen.find(x => x.id === id); if (!r || !file) return;
-  if (r.richtung !== 'ausgang') await ablageOrdner(true);   // direkt nach Klick/Drop um Ordner-Erlaubnis bitten
+  await ablageOrdner(true, r.richtung === 'ausgang' ? 'ausgang' : 'eingang');   // direkt nach Klick/Drop um Ordner-Erlaubnis bitten
   busy(true, 'PDF wird gespeichert …');
   try {
     const bs = await fileToBelege(file); let b = bs.find(x => /pdf/.test(x.type)) || bs[0]; if (!b) return toast('Keine PDF gefunden.');
     let f = b.file; if (b.type === 'message/rfc822' && b.mail) f = new File([textPdf(b.mail.subject || 'E-Mail', `Von: ${b.mail.from}\n\n${b.mail.text}`)], 'Mail.pdf', { type: 'application/pdf' });
     const p = await belegAnhaengen(r, f);
-    toast('PDF hinterlegt: ' + p.dateiname + (r.richtung === 'ausgang' ? '' : p._ordner ? ' · 📁 im Ordner gespeichert' : ' · ⚠ NICHT im Ordner (' + p._grund + ')'));
+    toast('PDF hinterlegt: ' + p.dateiname + (p._ordner ? ' · 📁 im Ordner gespeichert' : ' · ⚠ NICHT im Ordner (' + p._grund + ')'));
   } catch (e) { console.error(e); toast('PDF nicht gespeichert: ' + (e.message || e)); }
   finally { busy(false); }
   render(); rechnungDetail(id);
@@ -90,18 +91,25 @@ const ablIdb = () => new Promise((res, rej) => { const q = indexedDB.open('maste
 async function ablIdbGet(k) { const d = await ablIdb(); return new Promise((res, rej) => { const q = d.transaction('h').objectStore('h').get(k); q.onsuccess = () => res(q.result); q.onerror = rej; }); }
 async function ablIdbPut(k, v) { const d = await ablIdb(); return new Promise((res, rej) => { const tx = d.transaction('h', 'readwrite'); v == null ? tx.objectStore('h').delete(k) : tx.objectStore('h').put(v, k); tx.oncomplete = res; tx.onerror = rej; }); }
 
-let ABLAGE = null;   // gewählter Ordner (FileSystemDirectoryHandle)
-async function ablageLaden() { if (!ablageMoeglich()) return null; try { ABLAGE = (await ablIdbGet('ordner')) || null; } catch (e) { ABLAGE = null; } return ABLAGE; }
-async function ablageWaehlen() {
+// Zwei Ordner: Eingangsrechnungen (umbenannt) und Ausgangsrechnungen (Originalname)
+let ABLAGE = null, ABLAGE_A = null;   // gewählte Ordner (FileSystemDirectoryHandle)
+const ABL_KEY = { eingang: 'ordner', ausgang: 'ordner-ausgang' };
+const ablageVon = art => art === 'ausgang' ? ABLAGE_A : ABLAGE;
+async function ablageLaden(art = 'eingang') {
+  if (!ablageMoeglich()) return null; let h = null; try { h = (await ablIdbGet(ABL_KEY[art])) || null; } catch (e) { }
+  if (art === 'ausgang') ABLAGE_A = h; else ABLAGE = h; return h;
+}
+async function ablageWaehlen(art = 'eingang') {
   if (!ablageMoeglich()) { toast('Ordner-Ablage geht nur in Chrome oder Edge.'); return null; }
-  try { const h = await window.showDirectoryPicker({ id: 'mastercar-belege', mode: 'readwrite' }); ABLAGE = h; await ablIdbPut('ordner', h); toast('Ablage-Ordner: ' + h.name); return h; }
+  try { const h = await window.showDirectoryPicker({ id: art === 'ausgang' ? 'mastercar-ausgang' : 'mastercar-belege', mode: 'readwrite' });
+    if (art === 'ausgang') ABLAGE_A = h; else ABLAGE = h; await ablIdbPut(ABL_KEY[art], h); toast((art === 'ausgang' ? 'Ordner Rechnungsausgang: ' : 'Ordner Rechnungseingang: ') + h.name); return h; }
   catch (e) { if (e.name !== 'AbortError') toast('Ordner nicht übernommen: ' + e.message); return null; }
 }
-ablageLaden().then(h => { if (h && typeof UI !== 'undefined' && UI.view === 'einst') render(); });
-async function ablageAus() { ABLAGE = null; await ablIdbPut('ordner', null); }
+Promise.all([ablageLaden('eingang'), ablageLaden('ausgang')]).then(([a, b]) => { if ((a || b) && typeof UI !== 'undefined' && UI.view === 'einst') render(); });
+async function ablageAus(art = 'eingang') { if (art === 'ausgang') ABLAGE_A = null; else ABLAGE = null; await ablIdbPut(ABL_KEY[art], null); }
 // Ordner mit Schreibrecht holen. ask=true fragt den Browser nach (nur direkt nach einem Klick/Drop möglich).
-async function ablageOrdner(ask = true) {
-  const h = ABLAGE || await ablageLaden(); if (!h) return null;
+async function ablageOrdner(ask = true, art = 'eingang') {
+  const h = ablageVon(art) || await ablageLaden(art); if (!h) return null;
   try {
     let p = await h.queryPermission({ mode: 'readwrite' });
     if (p === 'prompt' && ask) p = await h.requestPermission({ mode: 'readwrite' });
@@ -120,7 +128,7 @@ async function ablageBlob(r) { const u = await DB.fileUrl(r.datei); if (!u) retu
 
 // Nach dem Bearbeiten: Datei im Ordner auf den neuen Namen bringen (alte Datei wird ersetzt)
 async function ablageUmbenennen(r, alt) {
-  if (!r.datei) return;
+  if (!r.datei || r.richtung === 'ausgang') return;   // Ausgangsrechnungen behalten ihren Originalnamen
   const neu = belegName(r, dateiEndung(r.datei)); if (neu === alt) return;
   const dir = await ablageOrdner(false);
   let name = neu;
@@ -137,13 +145,14 @@ async function ablageUmbenennen(r, alt) {
 
 // Alle vorhandenen Belege (Rechnungseingang mit Datei) in den Ordner legen, die dort noch fehlen
 async function ablageAlle() {
-  const dir = await ablageOrdner(true); if (!dir) return toast('Bitte zuerst einen Ablage-Ordner wählen und den Zugriff erlauben.');
-  const liste = S.rechnungen.filter(r => r.datei);
+  const dirE = await ablageOrdner(true, 'eingang'), dirA = await ablageOrdner(true, 'ausgang');
+  if (!dirE && !dirA) return toast('Bitte zuerst einen Ablage-Ordner wählen und den Zugriff erlauben.');
+  const liste = S.rechnungen.filter(r => r.datei && (r.richtung === 'ausgang' ? dirA : dirE));
   let neu = 0, da = 0, fehl = 0;
   for (let i = 0; i < liste.length; i++) {
-    const r = liste[i]; busy(true, `Belege in den Ordner legen: ${i + 1} von ${liste.length}`);
+    const r = liste[i], dir = r.richtung === 'ausgang' ? dirA : dirE; busy(true, `Belege in den Ordner legen: ${i + 1} von ${liste.length}`);
     try {
-      const soll = belegName(r, dateiEndung(r.datei));
+      const soll = r.richtung === 'ausgang' ? (r.dateiname || belegName(r, dateiEndung(r.datei))) : belegName(r, dateiEndung(r.datei));
       if (await ablageHat(dir, soll)) { da++; if (r.dateiname !== soll) await DB.update('rechnungen', r.id, { dateiname: soll }); continue; }
       const blob = await ablageBlob(r); if (!blob) { fehl++; continue; }
       const n = await ablageSchreiben(dir, soll, blob); await DB.update('rechnungen', r.id, { dateiname: n }); neu++;

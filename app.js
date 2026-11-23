@@ -86,7 +86,7 @@ function twEnhance(root) {
       const a = e.target.closest('[data-tw]')?.dataset.tw; if (!a) return;
       if (a === 'l' || a === 'r') { tw.scrollLeft += (a === 'l' ? -1 : 1) * Math.max(200, tw.clientWidth * 0.7); TW.pos[key] = [tw.scrollLeft, tw.scrollTop]; twPfeile(box, tw); }
       if (a === 'max') { TW.max = TW.max === key ? null : key; render(); }
-      if (a === 'reset') { delete SPALTEN[key]; spaltenSpeichern(); render(); }
+      if (a === 'reset') { delete SPALTEN[key]; spaltenSpeichern(); delete BREITEN[key]; breitenSpeichern(); render(); }
     });
     // Mit gedrückter Maus seitlich ziehen (Klick ohne Bewegung öffnet weiter die Zeile)
     tw.addEventListener('mousedown', e => { if (e.button !== 0 || e.target.closest('input,select,textarea,button,a,thead')) return; TW.drag = { tw, sx: e.clientX, sl: tw.scrollLeft, bewegt: false }; });
@@ -107,6 +107,8 @@ function twSpalten(tw, key, box) {
     if (order.some((v, i) => v !== i)) tw.querySelectorAll('tr').forEach(tr => { const c = [...tr.children]; if (c.length === n) order.forEach(i => tr.appendChild(c[i])); });
     box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spaltenreihenfolge">↺ Spalten</button>');
   }
+  twBreiten(tw, key, h);
+  if (!want && BREITEN[key] && Object.keys(BREITEN[key]).length) box.querySelector('.twbar .sp').insertAdjacentHTML('afterend', '<button class="btn sm" data-tw="reset" title="Ursprüngliche Spalten (Reihenfolge und Breite)">↺ Spalten</button>');
   const hs = [...h.children], ni = hs.findIndex(th => th.dataset.name);
   if (ni >= 0) tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length === n) tr.children[ni].classList.add('stick'); });
   hs.forEach(th => {
@@ -122,6 +124,33 @@ function twSpalten(tw, key, box) {
       cur.splice(von, 1); cur.splice(von < ziel ? cur.indexOf(th.dataset.k) + 1 : cur.indexOf(th.dataset.k), 0, k);   // nach rechts: hinter das Ziel, nach links: davor
       SPALTEN[key] = cur; spaltenSpeichern(); render();
     });
+  });
+}
+/* Spaltenbreite: am rechten Rand der Überschrift ziehen (Maus oder Finger), Doppelklick = wieder automatisch. Pro Tabelle gemerkt. */
+const BREITEN = (() => { try { return JSON.parse(localStorage.getItem('mc-breiten')) || {}; } catch (e) { return {}; } })();
+function breitenSpeichern() { try { localStorage.setItem('mc-breiten', JSON.stringify(BREITEN)); } catch (e) { } }
+function spalteBreite(tw, idx, w) {
+  tw.querySelectorAll('tr').forEach(tr => { const c = tr.children[idx]; if (!c || tr.children.length !== tw.querySelector('thead tr').children.length) return;
+    if (w) { c.style.width = c.style.minWidth = c.style.maxWidth = w + 'px'; c.classList.add('fix-w'); } else { c.style.width = c.style.minWidth = c.style.maxWidth = ''; c.classList.remove('fix-w'); } });
+}
+function twBreiten(tw, key, h) {
+  const B = BREITEN[key] || {};
+  [...h.children].forEach((th, i) => {
+    const k = th.dataset.k; if (!k) return;
+    if (B[k]) spalteBreite(tw, i, B[k]);
+    const g = document.createElement('span'); g.className = 'col-gr'; g.title = 'Ziehen = Breite ändern · Doppelklick = automatisch'; g.setAttribute('aria-hidden', 'true'); th.appendChild(g);
+    g.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation(); g.setPointerCapture(e.pointerId);
+      const idx = [...h.children].indexOf(th), x0 = e.clientX, w0 = th.getBoundingClientRect().width; let w = w0;
+      tw.classList.add('col-resize');
+      const mv = ev => { w = Math.max(40, Math.round(w0 + ev.clientX - x0)); spalteBreite(tw, idx, w); };
+      const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); tw.classList.remove('col-resize');
+        if (Math.abs(w - w0) > 2) { (BREITEN[key] = BREITEN[key] || {})[k] = w; breitenSpeichern(); TW.nachZiehen = true; setTimeout(() => TW.nachZiehen = false, 0); } };
+      g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+    });
+    g.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); });
+    g.addEventListener('dblclick', e => { e.stopPropagation(); e.preventDefault(); if (BREITEN[key]) { delete BREITEN[key][k]; breitenSpeichern(); } spalteBreite(tw, [...h.children].indexOf(th), 0); });
+    g.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
   });
 }
 function twPfeile(box, tw) {
@@ -162,9 +191,9 @@ Object.assign(A, {
   korbLeer: () => { KORB.length = 0; korbRender(); },
   korbPick: () => $('#anyIn').click(),
   korbZu: () => $('#korb')?.classList.toggle('zu'),
-  ablageWahl: async () => { await ablageWaehlen(); render(); korbRender(); },
+  ablageWahl: async d => { await ablageWaehlen(d.art || 'eingang'); render(); korbRender(); },
   ablageAlle: () => ablageAlle(),
-  ablageAus: async () => { await ablageAus(); render(); toast('Ordner-Ablage ausgeschaltet.'); },
+  ablageAus: async d => { await ablageAus(d.art || 'eingang'); render(); toast('Ordner-Ablage ausgeschaltet.'); },
   more: d => { UI.more[d.v] = (UI.more[d.v] || 300) + 300; render(); },
   // Spaltenkopf: aufsteigend → absteigend → wieder Standard-Sortierung
   colSort: d => { const st = UI.cs[d.v] = UI.cs[d.v] || {}; if (st.k !== d.k) { st.k = d.k; st.d = 'asc'; } else if (st.d === 'asc') st.d = 'desc'; else { st.k = null; st.d = null; } render(); },

@@ -424,10 +424,13 @@ function viewEinst() {
   </section>
   <section class="card"><h3>Beleg-Ablage</h3>
     <p class="small">Eingangsrechnungen werden automatisch benannt:<br><span class="mono small">VE Sport_Lieferant_Art_Nummer_Datum.pdf</span><br><span class="muted">z. B. ${esc(belegName({ partner: 'Stahlgruber GmbH', art: 'Rechnung', nummer: '4711-0815', datum: '2026-11-20' }))}</span></p>
-    ${ablageMoeglich() ? `<p class="small">Ordner auf diesem PC: ${ABLAGE ? `<b>📁 ${esc(ABLAGE.name)}</b>` : '<span class="muted">noch keiner gewählt</span>'}</p>
-    <button class="btn primary" data-act="ablageWahl">${ABLAGE ? 'Anderen Ordner wählen' : '📁 Ordner wählen'}</button>
-    ${ABLAGE ? `<button class="btn" data-act="ablageAlle">Vorhandene Belege jetzt ablegen</button> <button class="btn" data-act="ablageAus">Ablage aus</button>` : ''}
-    <p class="small muted">Jede reingezogene Rechnung wird zusätzlich in diesen Ordner gelegt (z. B. euer OneDrive- oder HiDrive-Ordner). Ändert ihr Lieferant, Nummer, Art oder Datum, wird die Datei umbenannt. Der Ordner gilt für diesen Browser; der Browser fragt beim ersten Mal nach Erlaubnis.</p>`
+    ${ablageMoeglich() ? `
+    <p class="small"><b>Rechnungseingang</b> (umbenannt): ${ABLAGE ? `<b>📁 ${esc(ABLAGE.name)}</b>` : '<span class="muted">noch kein Ordner</span>'}</p>
+    <div class="btnrow" style="margin-top:4px"><button class="btn ${ABLAGE ? '' : 'primary'}" data-act="ablageWahl" data-art="eingang">${ABLAGE ? 'Anderen Ordner' : '📁 Ordner wählen'}</button>${ABLAGE ? '<button class="btn" data-act="ablageAus" data-art="eingang">Aus</button>' : ''}</div>
+    <p class="small" style="margin-top:12px"><b>Rechnungsausgang</b> (Originalname bleibt): ${ABLAGE_A ? `<b>📁 ${esc(ABLAGE_A.name)}</b>` : '<span class="muted">noch kein Ordner</span>'}</p>
+    <div class="btnrow" style="margin-top:4px"><button class="btn ${ABLAGE_A ? '' : 'primary'}" data-act="ablageWahl" data-art="ausgang">${ABLAGE_A ? 'Anderen Ordner' : '📁 Ordner wählen'}</button>${ABLAGE_A ? '<button class="btn" data-act="ablageAus" data-art="ausgang">Aus</button>' : ''}</div>
+    ${ABLAGE || ABLAGE_A ? `<div class="btnrow"><button class="btn" data-act="ablageAlle">Vorhandene Belege jetzt ablegen</button></div>` : ''}
+    <p class="small muted">Jede reingezogene Rechnung wird zusätzlich in den passenden Ordner gelegt (z. B. OneDrive). Eingangsrechnungen werden nach dem Schema benannt und bei Änderungen umbenannt; eure eigenen Ausgangsrechnungen behalten den Namen, den sie haben. Die Ordner gelten für diesen Browser; der Browser fragt beim ersten Mal nach Erlaubnis.</p>`
     : '<p class="small muted">Die Ablage in einen Ordner auf dem PC geht nur in Chrome oder Edge. Die Belege liegen trotzdem sicher in der App und lassen sich mit dem richtigen Namen herunterladen.</p>'}
   </section>
   <section class="card"><h3>Importe</h3><p class="small muted">Ein falscher Import lässt sich hier komplett rückgängig machen.</p>
