@@ -69,7 +69,8 @@ function parseAusgang(rows) {
   const h = rows[hi], c = {
     st: colIdx(h, 'Bezahlt?'), za: colIdx(h, 'Zahlart'), gep: colIdx(h, 'Überprüft?'), nr: colIdx(h, 'Rech.-Nr.'), datum: colIdx(h, 'Datum'), name: colIdx(h, 'Firma/Name'), kd: colIdx(h, 'Kd-Nr.'),
     brutto: colIdx(h, 'Gesamt brutto'), lohn: colIdx(h, 'Werkstatt'), teile: colIdx(h, 'Ersatzteile'), sonst: colIdx(h, 'Sonstiges'), mwst: colIdx(h, 'MwSt.'), alt: colIdx(h, 'Altteile'),
-    ustAlt: colIdx(h, 'USt.Alt.'), dlp: colIdx(h, 'Dl.Posten'), netto: colIdx(h, 'Gesamt Netto'), notiz: colIdx(h, 'Notizen', 'Notiz'), kz: colIdx(h, 'Kennzeichen')
+    ustAlt: colIdx(h, 'USt.Alt.'), dlp: colIdx(h, 'Dl.Posten'), netto: colIdx(h, 'Gesamt Netto'), notiz: colIdx(h, 'Notizen', 'Notiz'), kz: colIdx(h, 'Kennzeichen'),
+    bez: colIdx(h, 'Bezahlt')   // Betrag (nicht „Bezahlt?“)
   };
   const out = [], seen = {};
   rows.slice(hi + 1).forEach(r => {
@@ -80,7 +81,7 @@ function parseAusgang(rows) {
     seen[k0] = (seen[k0] || 0) + 1;
     out.push({
       richtung: 'ausgang', nummer: nummer || null, datum, partner: txt(r, c.name), kundennr: txt(r, c.kd) || null, kennzeichen: txt(r, c.kz).toUpperCase() || null,
-      brutto: r2(b), netto: parseNum(cell(r, c.netto)), mwst: r2((parseNum(cell(r, c.mwst)) || 0) + (parseNum(cell(r, c.ustAlt)) || 0)),
+      brutto: r2(b), netto: parseNum(cell(r, c.netto)), mwst: parseNum(cell(r, c.mwst)), ust_alt: parseNum(cell(r, c.ustAlt)), bezahlt_betrag: parseNum(cell(r, c.bez)),
       lohn: parseNum(cell(r, c.lohn)), teile: parseNum(cell(r, c.teile)), sonstiges: parseNum(cell(r, c.sonst)), altteile: parseNum(cell(r, c.alt)), durchlaufend: parseNum(cell(r, c.dlp)),
       zahlart: ZA_MAP(za), status_excel: stNorm(st, 'ausgang') || (storno ? 'storniert' : null), bezahlt_extern: istBezahltLaut(st), erledigt: storno, art: storno ? 'Storno' : 'Rechnung',
       geprueft: !/nein/i.test(txt(r, c.gep)), notiz: txt(r, c.notiz) || null, quelle: 'excel', schluessel: seen[k0] > 1 ? k0 + '#' + seen[k0] : k0
@@ -154,7 +155,7 @@ function mappeBlaetter(t) {
   return out;
 }
 // Rechnungen, die es schon gibt: geänderte Felder übernehmen (z. B. Status „Offen“ → „Bezahlt“ im Werkstatt Journal)
-const UPD_FELDER = { ausgang: ['partner', 'kundennr', 'kennzeichen', 'datum', 'brutto', 'netto', 'mwst', 'lohn', 'teile', 'sonstiges', 'altteile', 'durchlaufend', 'zahlart', 'geprueft', 'notiz', 'erledigt', 'art'],
+const UPD_FELDER = { ausgang: ['partner', 'kundennr', 'kennzeichen', 'datum', 'brutto', 'netto', 'mwst', 'ust_alt', 'bezahlt_betrag', 'lohn', 'teile', 'sonstiges', 'altteile', 'durchlaufend', 'zahlart', 'geprueft', 'notiz', 'erledigt', 'art'],
   eingang: ['partner', 'datum', 'brutto', 'netto', 'mwst', 'skonto', 'durchlaufend', 'zahlart', 'art', 'fix', 'notiz', 'ein_ausgang', 'mwst_pflicht', 'skonto_satz', 'mit_skonto', 'nach_dlp', 'bankabgleich'] };
 const leer = v => v == null || v === '';
 const gleich = (a, b) => (leer(a) && leer(b)) || (typeof a === 'number' || typeof b === 'number' ? !leer(a) && !leer(b) && eq(+a, +b) : String(a) === String(b));

@@ -77,12 +77,26 @@ async function statusNachziehen(ids) {
   buildIdx(); const jobs = [];
   for (const id of new Set(ids)) {
     const r = S.rechnungen.find(x => x.id === id); if (!r || r.erledigt || istStornoLaut(r.status_excel)) continue;
-    const st = rStatus(r); let neu = null;
-    if (st.key === 'bezahlt' && !istBezahltLaut(r.status_excel)) neu = 'Bezahlt';
-    if (neu) jobs.push(() => DB.update('rechnungen', r.id, { status_excel: neu }));
+    const st = rStatus(r), p = {};
+    if (st.key === 'bezahlt' && !istBezahltLaut(r.status_excel)) p.status_excel = 'Bezahlt';
+    const za = zahlartAusZahlung(r); if (za && za !== r.zahlart) p.zahlart = za;
+    if (Object.keys(p).length) jobs.push(() => DB.update('rechnungen', r.id, p));
   }
   for (let i = 0; i < jobs.length; i += 10) await Promise.all(jobs.slice(i, i + 10).map(f => f()));
   return jobs.length;
+}
+// Zahlart aus der zugeordneten Zahlung: SumUp → EC, Kasse/bar → Bar, Bank → Überweisung (eine SEPA-Lastschrift bleibt SEPA).
+// Bei mehreren Zahlungen zählt die mit dem größten Betrag.
+function zahlartAusZahlung(r) {
+  const zs = IDX.zByR.get(r.id) || []; if (!zs.length) return null;
+  const sum = {}; zs.forEach(z => { const a = z.sumup_id ? 'ec' : z.bank_id ? (r.zahlart === 'sepa' ? 'sepa' : 'bank') : 'bar'; sum[a] = (sum[a] || 0) + Math.abs(+z.betrag || 0); });
+  return Object.entries(sum).sort((a, b) => b[1] - a[1])[0][0];
+}
+// Bei allen Rechnungen mit Zahlung die Zahlart angleichen (läuft bei jedem Abgleich mit)
+async function zahlartNachziehen() {
+  buildIdx(); const l = S.rechnungen.filter(r => { const za = zahlartAusZahlung(r); return za && za !== r.zahlart; });
+  for (let i = 0; i < l.length; i += 20) await Promise.all(l.slice(i, i + 20).map(r => DB.update('rechnungen', r.id, { zahlart: zahlartAusZahlung(r) })));
+  return l.length;
 }
 const B_ST = {
   offen: ['Nicht zugeordnet', 'st-open'], zugeordnet: ['Zugeordnet', 'st-ok'], teilweise: ['Teilweise zugeordnet', 'st-warn'], sumup: ['SumUp-Auszahlung', 'st-info'],
@@ -325,6 +339,7 @@ async function autoAbgleich() {
     }
   }
   buildIdx();
+  await zahlartNachziehen().catch(e => console.warn(e));   // Zahlart = wie tatsächlich bezahlt (EC/SumUp, Überweisung/SEPA, bar)
   if (typeof avisAbgleich === 'function') await avisAbgleich().catch(e => console.warn(e));   // Zahlungsavise mit Abbuchungen verbinden
   return { n: newZ.length, links };
 }

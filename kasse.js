@@ -42,7 +42,7 @@ function viewKasse() {
   <div class="tw"><table class="tb click">${colHead('kasse', cols, base)}<tbody>
   ${list.slice(0, lim).map(({ k, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean);
     return `<tr data-act="kasseD" data-id="${k.id}"><td>${fmtD(k.datum)}</td><td class="mono">${esc(k.belegnr || '')}</td><td>${esc(k.text || '')}</td><td class="num pos">${k.betrag > 0 ? fmtE(k.betrag) : ''}</td><td class="num neg">${k.betrag < 0 ? fmtE(-k.betrag) : ''}</td>
-    <td class="num ${B.map.get(k.id) < 0 ? 'neg' : ''}">${fmtE(B.map.get(k.id))}</td><td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join('<br>') : esc(k.kostenart || '')}</td><td>${badge(st)}${DUP.has(k.id) ? ' ' + badge({ cls: 'st-bad', label: 'doppelt?' }) : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Keine Einträge.</td></tr>'}
+    <td class="num ${B.map.get(k.id) < 0 ? 'neg' : ''}">${fmtE(B.map.get(k.id))}</td><td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ') : esc(k.kostenart || '')}</td><td>${badge(st)}${DUP.has(k.id) ? ' ' + badge({ cls: 'st-bad', label: 'doppelt?' }) : ''}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Keine Einträge.</td></tr>'}
   </tbody></table></div>${moreBtn('kasse', list.length, lim)}`;
 }
 function kasseForm(k, art) {

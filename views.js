@@ -166,8 +166,32 @@ function verkTxt(r) {
   (IDX.gsByR && IDX.gsByR.get(r.id) || []).forEach(g => t.push(`↔ ${g.art || 'Gutschrift'} ${g.nummer || ''} ${fmtE(g.brutto)}`.replace(/\s+/g, ' ')));
   return t.filter(Boolean).join(' · ');
 }
+// Kurz für die Tabelle: „🏦 Bank“ (anklickbar → Fenster mit den Zahlungsdaten), „bez. ohne Zuordnung“, „nicht gefunden“ + kleine Marken für Avis/Gutschrift
+function verkKurz(r) {
+  const t = [];
+  if (!DOK_ARTEN.includes(r.art) && (+r.brutto || 0) > 0) {
+    const zs = IDX.zByR.get(r.id) || [];
+    if (zs.length) {
+      const arten = [...new Set(zs.map(z => z.bank_id ? '🏦 Bank' : z.sumup_id ? '💳 SumUp' : z.kasse_id ? '💵 Kasse' : '💵 bar'))];
+      t.push(`<button class="vk-btn" data-act="zahlD" data-id="${r.id}">${arten.join(' + ')}${zs.length > arten.length ? ` ×${zs.length}` : ''}</button>`);
+    } else {
+      const k = rStatus(r).key;
+      if (k === 'extern') t.push('bez. ohne Zuordnung'); else if (!['erledigt', 'storno', 'verrechnet'].includes(k)) t.push('nicht gefunden');
+    }
+  }
+  if (typeof avisZu === 'function' && avisZu(r.id).length) t.push('📨 Avis');
+  if (r.bezug_id) t.push('↔ zu RE');
+  if ((IDX.gsByR && IDX.gsByR.get(r.id) || []).length) t.push('↔ Gutschrift');
+  return t.join(' · ');
+}
+// Fenster mit den zugeordneten Zahlungen einer Rechnung (eine Zahlung → gleich deren Daten)
+function zahlungenFenster(id) {
+  const r = S.rechnungen.find(x => x.id === id); if (!r) return; const zs = IDX.zByR.get(r.id) || [];
+  if (zs.length === 1) { const z = zs[0]; if (z.bank_id) return bankDetail(z.bank_id); if (z.sumup_id) return sumupDetail(z.sumup_id); if (z.kasse_id) return kasseDetail(z.kasse_id); }
+  openSheet({ title: 'Zahlungen zu ' + (r.nummer || 'Rechnung'), noOk: true, html: `<ul class="pays">${zs.map(z => `<li ${z.bank_id ? `data-act="bank" data-id="${z.bank_id}"` : z.sumup_id ? `data-act="sumup" data-id="${z.sumup_id}"` : z.kasse_id ? `data-act="kasseD" data-id="${z.kasse_id}"` : ''} style="cursor:pointer"><span>${payLabel(z)}${z.notiz ? ` <small class="muted">· ${esc(z.notiz)}</small>` : ''}</span><b>${fmtE(z.betrag)}</b></li>`).join('')}</ul>` });
+}
 // Kurzform für den Filter „Zahlung“: Bank / SumUp / Kasse / bar / keine
-const zahlQuelle = r => { const zs = IDX.zByR.get(r.id) || []; if (!zs.length) return rStatus(r).key === 'extern' ? 'laut Liste bezahlt, nicht gefunden' : 'keine'; return [...new Set(zs.map(z => z.bank_id ? 'Bank' : z.sumup_id ? 'SumUp' : z.kasse_id ? 'Kasse' : 'bar'))].join(' + '); };
+const zahlQuelle = r => { const zs = IDX.zByR.get(r.id) || []; if (!zs.length) return rStatus(r).key === 'extern' ? 'bez. ohne Zuordnung' : 'keine'; return [...new Set(zs.map(z => z.bank_id ? 'Bank' : z.sumup_id ? 'SumUp' : z.kasse_id ? 'Kasse' : 'bar'))].join(' + '); };
 const DOK_ARTEN = ['Zahlungsavis', 'Mahnung'];   // reine Dokumente (Betrag 0), keine Buchung
 function filterR(list, f) {
   if (f === 'alle') return list;
@@ -230,6 +254,7 @@ function colHead(view, cols, base) {
 // Diese Spalte bleibt beim seitlichen Schieben links stehen (Kunde, Firma, Name, Partner …)
 const NAME_SPALTEN = ['kunde', 'lief', 'name', 'partner', 'beschr', 'text'];
 const colTxt = (k, l, f) => ({ k, l, v: x => f(x) || '' });
+const eur = v => v == null || v === '' || Math.abs(+v) < 0.005 ? '' : fmtE(v);   // leere/Null-Beträge wie in Excel leer lassen
 const colDat = (k, l, f) => ({ k, l, v: x => f(x) || '', t: x => f(x) ? fmtD(f(x)) + ' ' + f(x) : '' });
 const colNum = (k, l, f) => ({ k, l, num: true, v: x => { const v = f(x); return v == null || v === '' ? null : Number(v); }, t: x => { const v = f(x); return v == null || v === '' ? '' : fmtE(v) + ' ' + v; } });
 /* Alle Spalten des Blatts „Ein- und Ausgaben“ in Excel-Reihenfolge (berechnete wie Jahr/KW/tatsächl. werden hergeleitet) */
@@ -267,7 +292,14 @@ function viewRechnungen(dir) {
     : [COL.datum, { k: 'kw', l: 'KW', num: true, v: x => x.r.datum ? isoWeek(x.r.datum).w : null, t: x => x.r.datum ? String(isoWeek(x.r.datum).w) : '' }, colTxt('lief', 'Firma', x => x.r.partner),
       { k: 'ea', l: 'Einn./Ausg.', v: x => (x.r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe', sel: true }, { k: 'fix', l: 'Var./fix', v: x => fixTxt(x.r), sel: true },
       { k: 'ka', l: 'Kategorie', v: x => x.r.kostenart || '', sel: true }, { k: 'art', l: 'Art', v: x => x.r.art || '', sel: true }, COL.nr, { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }];
-  if (isA) cols.push(colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }, { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true });
+  // Rechnungsausgang: alle Spalten des Werkstatt Journals (Reihenfolge wie dort) + was die App dazu weiß
+  if (isA) cols.push(colTxt('kd', 'Kd-Nr.', x => x.r.kundennr), { k: 'gep', l: 'Überprüft?', v: x => x.r.geprueft ? 'Ja' : 'Nein', sel: true }, { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true },
+    colNum('bezb', 'Bezahlt', x => x.r.bezahlt_betrag), colNum('brutto', 'Gesamt brutto', x => x.r.brutto), colNum('lohn', 'Werkstatt', x => x.r.lohn), colNum('teile', 'Ersatzteile', x => x.r.teile),
+    colNum('sonst', 'Sonstiges', x => x.r.sonstiges), colNum('mwst', 'MwSt.', x => x.r.mwst), colNum('alt', 'Altteile', x => x.r.altteile), colNum('ustalt', 'USt.Alt.', x => x.r.ust_alt),
+    colNum('dlp', 'Dl.Posten', x => x.r.durchlaufend), colNum('netto', 'Gesamt Netto', x => x.r.netto),
+    { k: 'monat', l: 'Monat', v: x => x.r.datum || '', t: x => x.r.datum ? MONATE_LANG[+x.r.datum.slice(5, 7) - 1] : '', sel: true }, { k: 'kw', l: 'KW', num: true, v: x => x.r.datum ? isoWeek(x.r.datum).w : null, t: x => x.r.datum ? String(isoWeek(x.r.datum).w) : '' },
+    { k: 'quartal', l: 'Quartal', v: x => x.r.datum ? 'Q' + Math.ceil(+x.r.datum.slice(5, 7) / 3) : '', sel: true }, colTxt('notiz', 'Notizen', x => x.r.notiz),
+    colNum('bez', 'Zahlung gefunden', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true });
   else cols.push(colNum('brutto', 'Brutto', x => x.r.brutto), colNum('skonto', 'Skonto', x => x.r.skonto ? Math.abs(x.r.skonto) : null), colNum('dlp', 'Durchl. Posten', x => x.r.durchlaufend || null),
     colNum('netto', 'Netto', x => x.r.netto), { k: 'mw', l: 'MwSt.?', v: x => jaNein(x.r.mwst_pflicht != null ? x.r.mwst_pflicht : Math.abs(x.r.mwst || 0) > 0.005), sel: true },
     colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('offen', 'Offen', x => r2(x.st.offen)), { k: 'beleg', l: 'PDF', v: x => x.r.datei ? 'mit PDF' : 'ohne PDF', sel: true },
@@ -285,16 +317,25 @@ function viewRechnungen(dir) {
   <div class="filters">${chips(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)} <span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
+  ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
+    const t = [['Werkstatt', s('lohn')], ['Ersatzteile', s('teile')], ['Sonstiges', s('sonstiges')], ['Altteile', s('altteile')], ['Dl.Posten', s('durchlaufend')], ['MwSt.', s('mwst')], ['davon USt. Altteile', s('ust_alt')], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
+    return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
+  : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
+    const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Durchl. Posten', s('durchlaufend')], ['Skonto', sum(l2, x => Math.abs(x.r.skonto || 0))], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
+    return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
   <div class="tw"><table class="tb click">${colHead(view, cols, base)}<tbody>
   ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}" class="${r.geprueft ? '' : 'unchecked'}">
-    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td>
-      <td class="num">${fmtE(r.brutto)}</td><td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${esc(ZA[r.zahlart] || '')}</td><td>${r.datei ? '📄' : ''}</td>`
+    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td>${esc(r.kundennr || '')}</td><td class="${r.geprueft ? 'x-gep-ja' : 'x-gep-nein'}">${r.geprueft ? 'Ja' : 'Nein'}</td><td>${esc(ZA[r.zahlart] || '')}</td>
+      <td class="num">${eur(r.bezahlt_betrag)}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${eur(r.lohn)}</td><td class="num">${eur(r.teile)}</td><td class="num">${eur(r.sonstiges)}</td><td class="num">${eur(r.mwst)}</td>
+      <td class="num">${eur(r.altteile)}</td><td class="num">${eur(r.ust_alt)}</td><td class="num">${eur(r.durchlaufend)}</td><td class="num">${eur(r.netto)}</td>
+      <td>${r.datum ? MONATE_LANG[+r.datum.slice(5, 7) - 1] : ''}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${r.datum ? 'Q' + Math.ceil(+r.datum.slice(5, 7) / 3) : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>
+      <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td>`
       : `<td>${fmtD(r.datum)}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${esc(r.partner || '')}</td><td class="${(r.brutto || 0) < 0 ? 'x-ein' : 'x-aus'}">${(r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe'}</td><td>${fixTxt(r)}</td>
-      <td>${esc(r.kostenart || '–')}${r.unterkonto ? `<br><small class="muted">${esc(r.unterkonto)}</small>` : ''}</td><td class="${/rechnung|vertrag|korrektur/i.test(r.art || 'Rechnung') ? 'x-art-r' : 'x-art-g'}">${esc(r.art || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
+      <td>${esc(r.kostenart || '–')}${r.unterkonto ? ` <small class="muted">· ${esc(r.unterkonto)}</small>` : ''}</td><td class="${/rechnung|vertrag|korrektur/i.test(r.art || 'Rechnung') ? 'x-art-r' : 'x-art-g'}">${esc(r.art || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
       <td class="num">${fmtE(r.brutto)}</td><td class="num">${r.skonto ? fmtE(Math.abs(r.skonto)) : ''}</td><td class="num">${r.durchlaufend ? fmtE(r.durchlaufend) : ''}</td><td class="num">${r.netto != null ? fmtE(r.netto) : ''}</td>
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
-    <td class="small verk ${(() => { const q = zahlQuelle(r); return /bank/i.test(q) ? 'x-vk-bank' : q === 'keine' ? 'x-vk-keine' : /nicht gefunden/.test(q) ? 'x-vk-warn' : ''; })()}">${esc(verkTxt(r))}</td>
+    <td class="verk ${(() => { const q = zahlQuelle(r); return /bank/i.test(q) ? 'x-vk-bank' : q === 'keine' ? 'x-vk-keine' : /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
     <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
@@ -322,7 +363,7 @@ function viewBank() {
   <div class="tw"><table class="tb click">${colHead('bank', cols, base)}<tbody>
   ${list.slice(0, lim).map(({ b, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean);
     return `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num ${b.betrag < 0 ? 'neg' : 'pos'}">${fmtE(b.betrag)}</td>
-    <td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join('<br>') : esc(b.kostenart || '')}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Keine Bankumsätze für diesen Filter.</td></tr>'}
+    <td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ') : esc(b.kostenart || '')}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Keine Bankumsätze für diesen Filter.</td></tr>'}
   </tbody></table></div>${moreBtn('bank', list.length, lim)}`;
 }
 
@@ -347,7 +388,7 @@ function viewSumup() {
   <div class="tw"><table class="tb click">${colHead('sumup', cols, base)}<tbody>
   ${list.slice(0, lim).map(({ s, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean); const bk = s.bank_id && S.bank.find(b => b.id === s.bank_id);
     return `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td>${esc(s.zahlungsart || '')}</td><td class="num">${fmtE(s.betrag)}</td><td class="num">${s.gebuehr != null ? fmtE(s.gebuehr) : ''}</td>
-    <td class="small">${rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join('<br>')}</td><td class="small">${bk ? '✓ ' + fmtD(bk.datum) : s.auszahlung_datum ? fmtD(s.auszahlung_datum) : ''}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Keine SumUp-Zahlungen.</td></tr>'}
+    <td class="small">${rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ')}</td><td class="small">${bk ? '✓ ' + fmtD(bk.datum) : s.auszahlung_datum ? fmtD(s.auszahlung_datum) : ''}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Keine SumUp-Zahlungen.</td></tr>'}
   </tbody></table></div>${moreBtn('sumup', list.length, lim)}`;
 }
 
@@ -376,7 +417,7 @@ function viewAbgleich() {
   const rows = (l0, dirCol = true, key = 'abg') => { if (!l0.length) return '<div class="empty small">Nichts – alles gut.</div>'; const cols = rCols(dirCol), l = colApply(key, l0, cols);
     return `<div class="tw"><table class="tb click">${colHead(key, cols, l0)}<tbody>
     ${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}">${dirCol ? `<td>${r.richtung === 'ausgang' ? '↗' : '↘'}</td>` : ''}<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${fmtE(st.bezahlt)}</td><td class="num neg">${fmtE(-st.offen)}</td>
-      <td>${esc(ZA[r.zahlart] || '')}</td><td>${badge(st)}</td><td class="small">${st.zahlungen.map(z => payLabel(z) + ' · ' + fmtE(z.betrag)).join('<br>')}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty small">Nichts für diesen Filter.</td></tr>`}</tbody></table></div>`; };
+      <td>${esc(ZA[r.zahlart] || '')}</td><td>${badge(st)}</td><td class="small">${st.zahlungen.map(z => payLabel(z) + ' · ' + fmtE(z.betrag)).join(' · ')}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty small">Nichts für diesen Filter.</td></tr>`}</tbody></table></div>`; };
   const stand = ausgangStand();
   const bankAlle = S.bank.filter(b => b.betrag > 0 && ['offen', 'teilweise'].includes(bStatus(b).key)).sort((a, b) => b.datum.localeCompare(a.datum));
   const bankOffen = bankAlle.filter(b => !wartetAufRechnung((b.zweck || '') + ' ' + (b.gegenpartei || ''), b.datum, stand));

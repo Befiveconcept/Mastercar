@@ -152,9 +152,9 @@ async function eingangDrop(fileList) {
   const docs = files.filter(f => !isTable(f)); if (!docs.length) return;
   const ablage = await ablageOrdner(true), ablageA = await ablageOrdner(true, 'ausgang'), logStart = ABLAGE_LOG.length;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
   busy(true, 'Lese Belege …');
-  const belege = []; for (const f of docs) { try { belege.push(...await fileToBelege(f)); } catch (e) { console.warn(e); } }
+  const belege = []; for (const f of docs) { try { belege.push(...(await fileToBelege(f)).map(b => ({ ...b, quelle: f }))); } catch (e) { console.warn(e); } }   // quelle = Originaldatei (für „zurück in den Stapel“)
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
-  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [], ausgangNeu = [], umbenannt = [];
+  const neu = [], doppelt = [], fehler = [], keine = [], ergaenzt = [], avise = [], mahnungen = [], mahnGesehen = new Set(), verknuepft = [], auszuege = [], ausgangNeu = [], umbenannt = [], zurueck = new Set();
   buildIdx();
   // Viele PDFs: immer 3 gleichzeitig von der KI lesen lassen
   let fertig = 0;
@@ -215,7 +215,8 @@ async function eingangDrop(fileList) {
       // Kontoauszug (am Dateinamen erkannt) → alle Buchungen in die Bank
       if (istAuszugName(b.name) && DB.aiOn) { auszuege.push(await kontoauszugImport(b)); return; }
       let x = null;
-      if (DB.aiOn) { try { x = await kiBelegLesen(b); } catch (e) { fehler.push(b.name + ': ' + aiErr(e)); } }
+      // KI nicht erreichbar (nach 3 Versuchen): nichts Halbes anlegen – Datei zurück in den Stapel zum erneuten Verarbeiten
+      if (DB.aiOn) { try { x = await kiBelegLesen(b); } catch (e) { zurueck.add(b.quelle || b.file); fehler.push(b.name + ': ' + aiErr(e) + ' – liegt wieder im Stapel'); return; } }
       if (x && x.kontoauszug) { auszuege.push(await kontoauszugImport(b)); return; }   // KI hat einen Kontoauszug erkannt
       if (x && +x.mahnung > 0 && await mahnungVerarbeiten(x, b)) return;
       if (x && x.ist_rechnung === false) { keine.push(b.name); return; }
@@ -267,11 +268,13 @@ async function eingangDrop(fileList) {
       const added = await DB.insert('rechnungen', [row]);
       if (orig && added.length) verknuepft.push({ g: added[0], r: orig });
       if (added.length) neu.push(added[0]); else doppelt.push(b.name);
-    } catch (e) { console.error(e); fehler.push(b.name + ': ' + (e.message || e)); }
+    } catch (e) { console.error(e); const netz = /fetch|network|timeout|load failed/i.test(String(e.message || e)); if (netz) zurueck.add(b.quelle || b.file);
+      fehler.push(b.name + ': ' + (netz ? 'Verbindung unterbrochen – liegt wieder im Stapel' : (e.message || e))); }
     finally { fertig++; busy(true, `Belege: ${fertig} von ${belege.length} fertig` + (DB.aiOn ? ' – KI liest …' : ' …')); }
   };
   const warte = belege.slice();
   await Promise.all([0, 1, 2].map(async () => { while (warte.length) await eins(warte.shift()); }));
+  if (zurueck.size) { [...zurueck].forEach(f => { if (!KORB.includes(f)) KORB.push(f); }); korbRender(true); }   // gescheiterte Dateien liegen wieder im Stapel → einfach nochmal „Verarbeiten“
   busy(true, 'Gleiche mit Bank ab …');
   const res = await autoAbgleich().catch(() => ({ n: 0 }));
   const nurAusgang = (ausgangNeu.length || ergaenzt.some(r => r.richtung === 'ausgang')) && !neu.length && !avise.length && !ergaenzt.some(r => r.richtung === 'eingang');
@@ -281,8 +284,8 @@ async function eingangDrop(fileList) {
     ${ablageMeldung(ABLAGE_LOG.slice(logStart))}`;
   const weitere = `
     ${ergaenzt.length ? `<p><b>${ergaenzt.length}</b> PDF${ergaenzt.length === 1 ? '' : 's'} an vorhandene Rechnungen gehängt:</p><div class="tw"><table class="tb click"><tbody>${ergaenzt.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang'}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td></tr>`).join('')}</tbody></table></div>` : ''}
-    ${umbenannt.length ? `<p><b>${umbenannt.length}</b> Ausgangsrechnung${umbenannt.length === 1 ? '' : 'en'}: PDF durch das Original ersetzt – Name jetzt wie im Original (in der App, im Ordner und ab der nächsten Sicherung):</p><div class="tw"><table class="tb click"><tbody>${umbenannt.slice(0, 50).map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '')}</td><td>${esc(r.partner || '')}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>${umbenannt.length > 50 ? `<p class="small muted">… und ${umbenannt.length - 50} weitere</p>` : ''}` : ''}
-    ${ausgangNeu.length ? `<p><b>${ausgangNeu.length}</b> Ausgangsrechnung${ausgangNeu.length === 1 ? '' : 'en'} aus der PDF angelegt (Dateiname bleibt wie er ist) – bitte kurz prüfen:</p><div class="tw"><table class="tb click"><tbody>${ausgangNeu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer)}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${umbenannt.length ? `<p><b>${umbenannt.length}</b> Ausgangsrechnung${umbenannt.length === 1 ? '' : 'en'}: PDF neu abgelegt unter der Rechnungsnummer (in der App, im Ordner und ab der nächsten Sicherung):</p><div class="tw"><table class="tb click"><tbody>${umbenannt.slice(0, 50).map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '')}</td><td>${esc(r.partner || '')}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>${umbenannt.length > 50 ? `<p class="small muted">… und ${umbenannt.length - 50} weitere</p>` : ''}` : ''}
+    ${ausgangNeu.length ? `<p><b>${ausgangNeu.length}</b> Ausgangsrechnung${ausgangNeu.length === 1 ? '' : 'en'} aus der PDF angelegt (Dateiname = Rechnungsnummer) – bitte kurz prüfen:</p><div class="tw"><table class="tb click"><tbody>${ausgangNeu.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer)}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(r.dateiname || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${auszuege.length ? `<p><b>${auszuege.length}</b> ${auszuege.length === 1 ? 'Kontoauszug' : 'Kontoauszüge'} eingelesen und mit den Ein- und Ausgaben abgeglichen${res.n ? ` – <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} automatisch zugeordnet` : ''}:</p><div class="tw"><table class="tb click"><tbody>${auszuege.map(x => `<tr><td>🏦 ${esc(x.name)}</td><td>${x.von ? fmtD(x.von) + ' – ' + fmtD(x.bis) : ''}</td><td class="num">${x.n} Buchungen</td><td>${x.neu} neu${x.n - x.neu ? ', ' + (x.n - x.neu) + ' schon da' : ''}</td><td>${x.probe === 'ok' ? badge({ cls: 'st-ok', label: '✓ Saldo stimmt' }) : x.probe ? badge({ cls: 'st-warn', label: x.probe }) : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${verknuepft.length ? `<p><b>${verknuepft.length}</b> Gutschrift${verknuepft.length === 1 ? '' : 'en'}/Korrektur${verknuepft.length === 1 ? '' : 'en'} direkt mit der Rechnung verknüpft:</p><div class="tw"><table class="tb click"><tbody>${verknuepft.map(({ g, r }) => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(g.art || 'Gutschrift')} ${esc(g.nummer || '')}</td><td class="num">${fmtE(g.brutto)}</td><td>→ ${esc(r.nummer || '')} ${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>noch offen ${fmtE(Math.max(0, rStatus(r).offen))}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${mahnungen.length ? `<p><b>${mahnungen.length}</b> Mahnung${mahnungen.length === 1 ? '' : 'en'} erkannt:</p><div class="tw"><table class="tb click"><tbody>${mahnungen.map(m => m.ziele.length ? m.ziele.map(r => `<tr data-act="rechnung" data-id="${r.id}"><td>${esc(m.label)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>→ Status jetzt <b>${esc(r.status_excel)}</b></td></tr>`).join('')
@@ -290,7 +293,8 @@ async function eingangDrop(fileList) {
     ${avise.length ? `<p><b>${avise.length}</b> Zahlungsavis abgelegt (unter „Zahlungsavis“, nicht im Rechnungseingang):</p><div class="tw"><table class="tb click"><tbody>${avise.map(({ a, bezug }) => `<tr data-act="avisD" data-id="${a.id}"><td>📨 ${esc(a.partner || '')}</td><td>${fmtD(a.datum)}</td><td class="num">${a.betrag != null ? fmtE(a.betrag) : ''}</td><td class="small">${bezug.length ? '→ ' + bezug.map(x => esc(x.nummer || '') + ' (' + esc(x.status_excel || '') + ')').join(', ') : '<span class="muted">keine passende Rechnung gefunden</span>'}</td><td>${a.bank_id ? badge({ cls: 'st-ok', label: '✓ in Bank' }) : badge({ cls: 'st-warn', label: 'Abbuchung offen' })}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${doppelt.length ? `<div class="warn">Schon vorhanden, nicht nochmal angelegt: ${doppelt.map(esc).join(', ')}</div>` : ''}
     ${keine.length ? `<div class="note">Keine Rechnung (übersprungen): ${keine.map(esc).join(', ')}</div>` : ''}
-    ${fehler.length ? `<div class="warn">Probleme: ${fehler.map(esc).join('<br>')}</div>` : ''}`;
+    ${zurueck.size ? `<div class="warn"><b>${zurueck.size} Datei${zurueck.size === 1 ? '' : 'en'}</b> konnte${zurueck.size === 1 ? '' : 'n'} wegen einer Verbindungsstörung nicht verarbeitet werden (auch nach 3 Versuchen). Sie liegen wieder unten rechts im Stapel – einfach nochmal „Verarbeiten“ klicken. Es wurde für sie nichts angelegt.</div>` : ''}
+    ${fehler.length ? `<details class="xl"><summary>Probleme im Einzelnen (${fehler.length})</summary><div class="small">${fehler.map(esc).join('<br>')}</div></details>` : ''}`;
   if (neu.length) pruefAnsicht(neu.map(r => r.id), kopf + (weitere.trim() ? `<details class="xl"><summary>Weitere Ergebnisse dieses Stapels</summary>${weitere}</details>` : ''));
   else openSheet({ title: 'Belege übernommen', noOk: true, wide: true, html: kopf + weitere });
 }

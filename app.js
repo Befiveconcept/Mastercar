@@ -113,6 +113,8 @@ function twSpalten(tw, key, box) {
   const ks = [...h.children].map(th => th.dataset.k || '');
   tw.querySelectorAll('tr').forEach(tr => { if (tr.children.length !== n) return; [...tr.children].forEach((c, i) => { if (ks[i]) c.classList.add('c-' + ks[i]); }); });
   twBreiten(tw, key, h);
+  // Gekürzte lange Texte (Verwendungszweck, Notiz …) beim Drüberfahren vollständig zeigen
+  tw.querySelectorAll('tbody td.zweck, tbody td.verk, tbody td.c-notiz, tbody td.c-zweck, tbody td.c-beschr, tbody td.c-re, tbody td.c-zahl, tbody td.c-nr, tbody td.c-ka, tbody td.stick').forEach(td => { if (!td.title) td.title = td.textContent.trim(); });
   // Ausgeblendete Spalten (pro Tabelle gemerkt) + „✕“ in der Überschrift zum Ausblenden
   const aus = SP_AUS[key] || [];
   [...h.children].forEach((th, i) => {
@@ -201,6 +203,7 @@ Object.assign(A, {
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
+  zahlD: d => zahlungenFenster(d.id),
   pruefen: () => pruefAnsicht(),
   regelNeu: async () => {
     const t = ($('#rgText') || {}).value || ''; if (t.trim().length < 5) return toast('Bitte erst den Hinweis in eigenen Worten eintippen.');
@@ -350,7 +353,7 @@ async function start() {
     const u = S.user || await DB.init();
     if (!u) return loginScreen();
     if (!(await DB.isStaff())) return loginScreen('Diese E-Mail ist noch nicht freigeschaltet. Bitte in Supabase in der Tabelle „team“ eintragen.');
-    busy(true, 'Lade Daten …'); await DB.loadAll(); await avisUmzug().catch(e => console.warn(e)); busy(false);
+    busy(true, 'Lade Daten …'); await DB.loadAll(); await avisUmzug().catch(e => console.warn(e)); await ausgangNamenAngleichen().catch(e => console.warn(e)); busy(false);
     shell(); render();
     if (S._fehlt) setTimeout(() => toast('Bitte in Supabase noch „02_erweiterung.sql“ ausführen – sonst fehlen Kassenbuch, To-Dos und Hebebühne.', 9000), 600);
     // Einladungs- oder Passwort-vergessen-Link: gleich ein eigenes Passwort setzen lassen

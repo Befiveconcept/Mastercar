@@ -128,8 +128,10 @@ const DB = (() => {
   }
   async function upload(path, blob) {
     if (!cloud) { await idbPut(path, blob); return path; }
-    const { error } = await sb.storage.from('belege').upload(path, blob, { contentType: blob.type || 'application/octet-stream', upsert: false });
-    if (error) throw error; return path;
+    return nochmal(async () => {
+      const { error } = await sb.storage.from('belege').upload(path, blob, { contentType: blob.type || 'application/octet-stream', upsert: true });
+      if (error) throw error; return path;
+    });
   }
   async function removeFile(path) {
     if (!path) return;
@@ -144,13 +146,23 @@ const DB = (() => {
 
   // KI über die Edge Function. files: [{type, data(base64)}]
   const aiOn = cloud;
+  // Bei Verbindungsabbruch / Überlastung automatisch bis zu 3 Versuche (2 s, 6 s Pause)
+  const nochmal = async (f, versuche = 3) => {
+    for (let i = 1; ; i++) {
+      try { return await f(); }
+      catch (e) { const vorüber = e.code === 'rate_limited' || e.code === 'unavailable' || /fetch|network|timeout|load failed|5\d\d/i.test(String(e.message || e));
+        if (!vorüber || i >= versuche) throw e; await new Promise(r => setTimeout(r, i === 1 ? 2000 : 6000)); }
+    }
+  };
   async function ai(prompt, { files = [], tier = 'default' } = {}) {
     if (!aiOn) throw Object.assign(new Error('KI nur online verfügbar'), { code: 'offline' });
     const messages = [{ role: 'user', content: prompt }];
-    const { data, error } = await sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } });
-    if (error) { const st = error.context && error.context.status; throw Object.assign(new Error(error.message), { code: st === 429 ? 'rate_limited' : st === 403 ? 'not_allowed' : st === 401 ? 'not_signed_in' : 'unavailable' }); }
-    if (data && data.error) throw Object.assign(new Error(data.error), { code: data.error });
-    return String(data && data.text || '');
+    return nochmal(async () => {
+      const { data, error } = await sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } });
+      if (error) { const st = error.context && error.context.status; throw Object.assign(new Error(error.message), { code: st === 429 ? 'rate_limited' : st === 403 ? 'not_allowed' : st === 401 ? 'not_signed_in' : 'unavailable' }); }
+      if (data && data.error) throw Object.assign(new Error(data.error), { code: data.error });
+      return String(data && data.text || '');
+    });
   }
   async function aiJson(prompt, opts) {
     const t = (await ai(prompt, opts)).replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
