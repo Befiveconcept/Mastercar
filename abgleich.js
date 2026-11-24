@@ -281,8 +281,10 @@ async function autoAbgleich() {
   }
 
   // Welche offenen Rechnungen ergeben zusammen genau den Zahlbetrag? (älteste zuerst, höchstens 5 Rechnungen)
-  const teilsumme = (list, ziel, max = 5) => {
-    const L = list.filter(r => restR(r) > 0.005).sort((a, b) => (a.datum || '').localeCompare(b.datum || '')).slice(0, 16); let best = null;
+  // nahAm: Datum der Zahlung → die Rechnungen mit dem nächstliegenden Datum zuerst (bei gleichen Beträgen, z. B. Beitragsbescheide)
+  const teilsumme = (list, ziel, max = 5, nahAm = null) => {
+    const dd = r => r.datum && nahAm ? Math.abs(daysBetween(r.datum, nahAm)) : 0;
+    const L = list.filter(r => restR(r) > 0.005).sort((a, b) => (nahAm ? (istBezahltLaut(b.status_excel) - istBezahltLaut(a.status_excel)) || dd(a) - dd(b) : 0) || (a.datum || '').localeCompare(b.datum || '')).slice(0, 16); let best = null;
     const rec = (i, acc, pick) => { if (best) return; if (pick.length && eq(acc, ziel)) { best = pick.slice(); return; }
       if (pick.length >= max || i >= L.length || acc > ziel + 0.01) return;
       pick.push(L[i]); rec(i + 1, acc + restR(L[i]), pick); pick.pop(); rec(i + 1, acc, pick); };
@@ -334,10 +336,11 @@ async function autoAbgleich() {
     const named = openPool.filter(r => partnerPasst(r, pay, NS) || (r.iban && pay.iban && normNr(r.iban) === normNr(pay.iban)));
     const nAmt = named.filter(r => eq(restR(r), restPay));
     if (nAmt.length === 1) { add(nAmt[0], pay, kind, restPay, 'Name/IBAN und Betrag'); return true; }
-    if (nAmt.length > 1) { nAmt.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); add(nAmt[0], pay, kind, restPay, 'Name/IBAN und Betrag (älteste offene)'); return true; }
+    // gleicher Betrag jeden Monat (Beiträge, Miete …): die Rechnung mit dem nächstliegenden Datum
+    if (nAmt.length > 1) { const dd = r => r.datum && pay.datum ? Math.abs(daysBetween(r.datum, pay.datum)) : 999; nAmt.sort((a, b) => dd(a) - dd(b) || (a.datum || '').localeCompare(b.datum || '')); add(nAmt[0], pay, kind, restPay, 'Name/IBAN und Betrag (nächstes Datum)'); return true; }
     // 3) Name + Summe aller offenen Rechnungen dieses Partners – oder eines Teils davon (Sammel-Lastschrift über mehrere Rechnungen)
     if (named.length > 1 && eq(sum(named, restR), restPay)) { named.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Name, Summe)')); return true; }
-    if (named.length > 1) { const ts = teilsumme(named, restPay); if (ts && ts.length > 1) { ts.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Name, Summe von ' + ts.length + ' Rechnungen)')); return true; } }
+    if (named.length > 1) { const ts = teilsumme(named, restPay, 5, pay.datum);if (ts && ts.length > 1) { ts.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Name, Summe von ' + ts.length + ' Rechnungen)')); return true; } }
     // 3b) Abbuchung/Überweisung mit Skonto (2 % oder 3 % abgezogen): Skonto an der Rechnung eintragen
     if (kind === 'bank' && pay.betrag < 0) {
       const sk = named.filter(r => [0.02, 0.03].some(p => Math.abs(restR(r) * (1 - p) - restPay) <= 0.02));
@@ -389,10 +392,74 @@ async function autoAbgleich() {
     const bar = c.filter(r => r.zahlart === 'bar'), pick = bar.length === 1 ? bar[0] : c.length === 1 ? c[0] : null;
     if (pick) { add(pick, k, 'kasse', rest, 'Kasse: Betrag und Datum'); kSigBelegt.add(kSig(k)); }
   }
+
+  // 5) Sammelzahlung, die bisher an nur EINER Rechnung hängt (z. B. BGHM: eine Abbuchung für zwei Bescheide → eine „zu viel bezahlt“, die andere „offen“)
+  //    Überschuss = genau die offenen Rechnungen derselben Firma → aufteilen
+  const zUpd = [];
+  for (const r of S.rechnungen) {
+    const zs = (IDX.zByR.get(r.id) || []).filter(z => z.bank_id); if (zs.length !== 1 || r.erledigt) continue;
+    const z = zs[0], ueber = r2(-restR(r)); if (ueber <= CENT_TOLERANZ) continue;
+    const b = S.bank.find(x => x.id === z.bank_id); if (!b) continue;
+    const pool = (r.richtung === 'eingang' ? eing : ausg).filter(o => o.id !== r.id && restR(o) > 0.005 && partnerPasst(o, b) && !(o.datum && b.datum && daysBetween(o.datum, b.datum) < -30));
+    const ts = teilsumme(pool, ueber, 5, b.datum); if (!ts) continue;
+    zUpd.push([z, r2(z.betrag - ueber)]); paidR.set(r.id, r2((paidR.get(r.id) || 0) - ueber));
+    ts.forEach(o => add(o, b, 'bank', restR(o), 'Sammelzahlung aufgeteilt (mit ' + (r.nummer || 'anderer Rechnung') + ')'));
+    extraP.set(b.id, r2((extraP.get(b.id) || 0) - ueber));   // der Betrag war ja schon verbraucht
+  }
+
+  // 6) Laut Excel bezahlt, aber noch ohne Zahlung → gezielt in Bank und Kasse suchen (größeres Zeitfenster, auch ohne Rechnungsnummer)
+  const tage = (r, p) => r.datum && p.datum ? daysBetween(r.datum, p.datum) : 0;
+  const PAYS = [
+    ...S.bank.filter(b => !b.art).map(b => ({ p: b, kind: 'bank', base: bStatus(b).rest })),
+    ...S.kasse.filter(k => !/umbuchung|privat|ignor/i.test(k.kostenart || '') && !kSigBelegt.has(kSig(k))).map(k => ({ p: { ...k, zweck: k.text, gegenpartei: k.text }, kind: 'kasse', base: kStatus(k).rest }))
+  ];
+  const frei = x => restP(x.p.id, x.base);
+  const lautBez = S.rechnungen.filter(r => !r.erledigt && sollOf(r) > 0 && istBezahltLaut(r.status_excel) && !DOK_ARTEN.includes(r.art)).sort((a, b) => (a.datum || '').localeCompare(b.datum || ''));
+  let nExcel = 0;
+  for (const r of lautBez) {
+    const soll = restR(r); if (soll <= 0.005) continue;
+    const P = PAYS.filter(x => (r.richtung === 'eingang') === (x.p.betrag < 0) && frei(x) > 0.005 && tage(r, x.p) >= -30 && tage(r, x.p) <= 180);
+    const nah = (a, b) => Math.abs(tage(r, a.p)) - Math.abs(tage(r, b.p));
+    const nm = P.filter(x => partnerPasst(r, x.p) || (r.iban && x.p.iban && normNr(r.iban) === normNr(x.p.iban))).sort(nah);
+    const gleich = x => Math.abs(frei(x) - soll) <= CENT_TOLERANZ;
+    let x = nm.find(gleich);
+    if (x) { add(r, x.p, x.kind, Math.min(frei(x), soll), 'Laut Excel bezahlt: Name und Betrag'); nExcel++; continue; }
+    // mit Skonto (2 % / 3 %) abgezogen
+    x = nm.find(y => [0.02, 0.03].some(q => Math.abs(soll * (1 - q) - frei(y)) <= 0.02));
+    if (x) { const s = r2(soll - frei(x)); skontoUpd.push([r, s]); add(r, x.p, x.kind, frei(x), 'Laut Excel bezahlt: Name und Betrag mit Skonto (' + fmtE(s) + ')'); nExcel++; continue; }
+    // eine Zahlung für mehrere Rechnungen derselben Firma (diese + andere offene)
+    let done = false;
+    for (const y of nm.filter(y => frei(y) > soll + 0.005)) {
+      const andere = (r.richtung === 'eingang' ? eing : ausg).filter(o => o.id !== r.id && restR(o) > 0.005 && partnerPasst(o, y.p) && Math.abs(tage(o, y.p)) <= 180);
+      const ts = teilsumme(andere, r2(frei(y) - soll), 5, y.p.datum);
+      if (ts) { const t = 'Sammelzahlung (' + (ts.length + 1) + ' Rechnungen, laut Excel bezahlt)'; add(r, y.p, y.kind, soll, t); ts.forEach(o => add(o, y.p, y.kind, restR(o), t)); nExcel++; done = true; break; }
+    }
+    if (done) continue;
+    // in Raten bezahlt: 2–4 Zahlungen an dieselbe Firma ergeben zusammen den Betrag
+    const kand = nm.filter(y => frei(y) < soll).slice(0, 12); let best = null;
+    const rec = (i, acc, pick) => { if (best) return; if (pick.length >= 2 && Math.abs(acc - soll) <= 0.01) { best = pick.slice(); return; }
+      if (pick.length >= 4 || i >= kand.length || acc > soll + 0.01) return; pick.push(kand[i]); rec(i + 1, acc + frei(kand[i]), pick); pick.pop(); rec(i + 1, acc, pick); };
+    rec(0, 0, []);
+    if (best) { best.forEach(y => add(r, y.p, y.kind, frei(y), 'Laut Excel bezahlt: Ratenzahlung (' + best.length + ' Zahlungen)')); nExcel++; continue; }
+    // ohne Namenstreffer: genau eine Zahlung mit diesem Betrag kurz nach dem Rechnungsdatum – und keine andere Rechnung, die sie auch meinen könnte
+    const c = P.filter(y => gleich(y) && tage(r, y.p) >= -10 && tage(r, y.p) <= 90);
+    if (c.length === 1) {
+      const y = c[0], konkurrenz = lautBez.filter(o => o !== r && o.richtung === r.richtung && Math.abs(restR(o) - soll) <= CENT_TOLERANZ && tage(o, y.p) >= -10 && tage(o, y.p) <= 90);
+      if (!konkurrenz.length) { add(r, y.p, y.kind, Math.min(frei(y), soll), 'Laut Excel bezahlt: Betrag und Datum (einziger Treffer) – bitte prüfen'); nExcel++; }
+    }
+  }
+
+  // 7) Personal ohne Rechnung: Krankenkassen, Sozialversicherung, Lohnsteuer, Löhne werden einfach abgebucht/überwiesen → Kosten ohne Beleg (Personalkosten)
+  const HR_RX = /\bikk\b|\baok\b|\bbkk\b|barmer|techniker\s*kranken|\bdak\b|\bkkh\b|\bhkk\b|knappschaft|minijob|kranken\s*kasse|krankenkasse|krankenversicherung|sozialversicherung|svlfg|beitragsnachweis|sv[-\s]?beitr|lohnsteuer|lohn\s*\/|gehalt|lohnzahlung|\blohn\b/i;
+  const hrJobs = S.bank.filter(b => b.betrag < 0 && !b.art && !b.kostenart && !(IDX.zByB.get(b.id) || []).length && !(extraP.get(b.id) > 0.005) && HR_RX.test((b.gegenpartei || '') + ' ' + (b.zweck || '')));
+  for (let i = 0; i < hrJobs.length; i += 10) await Promise.all(hrJobs.slice(i, i + 10).map(b => DB.update('bank', b.id, { kostenart: 'Personalkosten' })));
+
+  for (const [z, betrag] of zUpd) await DB.update('zuordnungen', z.id, { betrag, notiz: [z.notiz, 'Sammelzahlung aufgeteilt'].filter(Boolean).join(' · ') });
   for (const [r, s] of skontoUpd) await DB.update('rechnungen', r.id, { skonto: r2((+r.skonto || 0) + s), notiz: [r.notiz, 'Skonto ' + fmtE(s) + ' beim Bezahlen abgezogen'].filter(Boolean).join(' · ') });
   for (const { g, r } of gutLinks) await DB.update('rechnungen', g.id, { bezug_id: r.id, notiz: [g.notiz, `Mit ${r.nummer || 'Rechnung'} in der Lastschrift verrechnet`].filter(Boolean).join(' · ') });
   if (gutLinks.length) buildIdx();
-  if (newZ.length) { await DB.insert('zuordnungen', newZ); await statusNachziehen(newZ.map(z => z.rechnung_id)); }
+  if (newZ.length) { await DB.insert('zuordnungen', newZ); await statusNachziehen(newZ.map(z => z.rechnung_id).concat(zUpd.map(([z]) => z.rechnung_id))); }
+  else if (zUpd.length) await statusNachziehen(zUpd.map(([z]) => z.rechnung_id));
 
   // SumUp-Auszahlungen auf dem Bankkonto ↔ einzelne SumUp-Umsätze
   let links = 0;
@@ -417,7 +484,7 @@ async function autoAbgleich() {
   buildIdx();
   await zahlartNachziehen().catch(e => console.warn(e));   // Zahlart = wie tatsächlich bezahlt (EC/SumUp, Überweisung/SEPA, bar)
   if (typeof avisAbgleich === 'function') await avisAbgleich().catch(e => console.warn(e));   // Zahlungsavise mit Abbuchungen verbinden
-  return { n: newZ.length, links };
+  return { n: newZ.length, links, excel: nExcel, hr: hrJobs.length, geteilt: zUpd.length };
 }
 
 /* ---------- Ergebnis des Abgleichs: was ist zugeordnet, was bleibt offen und warum ---------- */
@@ -445,6 +512,8 @@ function abgleichBericht(res) {
   const vorBank = von ? offenE.filter(r => r.datum && addDays(r.datum, 60) < von).length : 0;
   openSheet({ title: 'Abgleich fertig', wide: true, noOk: true, html: `
     <p>${res.n ? `✓ <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} neu zugeordnet` : 'Nichts Neues eindeutig zuzuordnen'}${res.links ? ` · ${res.links} SumUp-Umsätze mit Auszahlungen verknüpft` : ''}.</p>
+    ${res.excel || res.geteilt || res.hr ? `<p class="small">${[res.excel ? `${res.excel} Rechnungen, die laut Excel bezahlt sind, ihre Bankbuchung gefunden` : '', res.geteilt ? `${res.geteilt} Sammelzahlungen auf mehrere Rechnungen aufgeteilt` : '', res.hr ? `${res.hr} Abbuchungen von Krankenkassen/Lohn als Personalkosten ohne Rechnung eingeordnet` : ''].filter(Boolean).join(' · ')}.</p>` : ''}
+    ${(() => { const n = S.rechnungen.filter(r => rStatus(r).key === 'extern' && !DOK_ARTEN.includes(r.art)).length; return n ? `<p class="small muted">${n} Rechnungen stehen in der Excel auf „bezahlt“, aber es gibt keine Bankbuchung mit passendem Namen und Betrag. Bei diesen „Zahlung zuordnen“ öffnen und nach Name oder Betrag suchen.</p>` : ''; })()}
     <p class="small">${von ? `Bankumsätze in der App: <b>${fmtD(von)} – ${fmtD(bis)}</b> (${S.bank.length}).` : '<b>Noch keine Bankumsätze importiert.</b>'}${fehlM.length ? ` <span class="neg">Ohne einen einzigen Bankumsatz: ${fehlM.join(', ')} – diesen Zeitraum bitte als Bank-CSV nachladen, sonst finden die Rechnungen daraus keine Zahlung.</span>` : ''}${vorBank ? ` ${vorBank} offene Eingangsrechnungen sind älter als die Bankdaten.` : ''}</p>
     ${ein.length ? `<details open><summary><b>${ein.length}</b> Geldeingänge auf der Bank noch ohne Rechnung</summary><div class="tw"><table class="tb click"><tbody>${ein.map(zeile).join('')}</tbody></table></div></details>` : '<p>✓ Alle Geldeingänge auf der Bank sind zugeordnet.</p>'}
     ${aus.length ? `<details><summary><b>${aus.length}</b> Abbuchungen noch ohne Eingangsrechnung</summary><div class="tw"><table class="tb click"><tbody>${aus.map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td class="num">${fmtE(b.betrag)}</td><td>${esc((b.gegenpartei || '').slice(0, 32))}</td><td class="muted">${ausGrund(b)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}

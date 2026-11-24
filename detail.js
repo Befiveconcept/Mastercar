@@ -192,7 +192,7 @@ function zahlungPicker(r) {
         ${bt ? `<div class="small"><span class="badge st-warn">schon zugeordnet</span> ${esc(bt)}</div>` : x.art ? `<div class="small"><span class="badge st-info">${esc(B_ST[x.art]?.[0] || x.art)}</span></div>` : ''}</td>
         <td class="num">${fmtE(Math.abs(x.p.betrag))}${x.rest > 0.005 && x.rest < Math.abs(x.p.betrag) - 0.005 ? `<div class="small muted">frei ${fmtE(x.rest)}</div>` : ''}</td>
         <td class="small">${x.s >= 50 ? '<b class="pos">passt gut</b><br>' : ''}${esc(x.why.join(', '))}</td>
-        <td>${frei(x) || (x.art && !bt) ? `<button class="btn sm primary" data-pick="${i}">Zuordnen</button>` : `<button class="btn sm" data-umh="${i}" title="Von der anderen Rechnung lösen und dieser zuordnen">Hierher umhängen</button>`}</td></tr>`; }).join('')
+        <td>${frei(x) || (x.art && !bt) ? `<button class="btn sm primary" data-pick="${i}">Zuordnen</button>` : `<button class="btn sm primary" data-teil="${i}" title="Eine Buchung für mehrere Rechnungen: Betrag aufteilen">Mit dazu (Sammelzahlung)</button> <button class="btn sm" data-umh="${i}" title="Von der anderen Rechnung lösen und dieser zuordnen">Hierher umhängen</button>`}</td></tr>`; }).join('')
       || `<tr><td colspan="6" class="empty">${w.length ? 'Keine Zahlung mit diesem Text gefunden – ist der Kontoauszug für den Zeitraum schon importiert?' : 'Keine offenen Zahlungen gefunden – oben suchen (Name, Betrag oder Datum), dann erscheinen auch schon zugeordnete.'}</td></tr>`;
   };
   const d = openSheet({
@@ -204,6 +204,21 @@ function zahlungPicker(r) {
   });
   $('#pq', d).addEventListener('input', e => $('#pl', d).innerHTML = rowsHtml(e.target.value));
   d.addEventListener('click', async e => {
+    const tl = e.target.closest('[data-teil]');
+    if (tl) {
+      // Sammelzahlung: die anderen Rechnungen behalten nur ihren eigenen Betrag, der Überschuss geht an diese Rechnung
+      const x = pays[+tl.dataset.teil]; let freiB = x.rest > 0.005 ? x.rest : 0;
+      for (const z of x.zs || []) {
+        const o = RE.get(z.rechnung_id); if (!o) continue;
+        const brauchtNoch = r2(sollOf(o) - (rStatus(o).bezahlt - z.betrag));
+        if (z.betrag > brauchtNoch + 0.01) { const neu = Math.max(0, brauchtNoch); freiB = r2(freiB + z.betrag - neu);
+          if (neu > 0.005) await DB.update('zuordnungen', z.id, { betrag: r2(neu), notiz: [z.notiz, 'Sammelzahlung aufgeteilt'].filter(Boolean).join(' · ') }); else await DB.remove('zuordnungen', z.id); }
+      }
+      const amt = parseNum($('#pb', d).value) ?? Math.min(st.offen > 0.005 ? st.offen : freiB, freiB);
+      if (!(amt > 0.005)) { buildIdx(); return toast('Von dieser Buchung ist nichts mehr übrig – die andere Rechnung braucht den ganzen Betrag. Oben unter „Betrag zuordnen“ einen Betrag eintragen.'); }
+      await zuordnen(r, x.p, x.kind, amt, 'Sammelzahlung'); await statusNachziehen(x.zs.map(z => z.rechnung_id));
+      closeSheet(); render(); rechnungDetail(r.id); return toast('Als Sammelzahlung zugeordnet.');
+    }
     const b = e.target.closest('[data-pick]'), u = e.target.closest('[data-umh]'); if (!b && !u) return;
     const x = pays[b ? +b.dataset.pick : +u.dataset.umh];
     if (u) {
@@ -233,25 +248,39 @@ async function bankDetail(id) {
     <h4>Zugeordnete Rechnungen</h4>
     ${st.zuordnungen.length ? `<ul class="pays">${st.zuordnungen.map(z => { const r = S.rechnungen.find(x => x.id === z.rechnung_id); return `<li><span><a href="#" data-r="${z.rechnung_id}">${esc((r?.nummer || '') + ' · ' + (r?.partner || ''))}</a>${z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Lösen">✕</button></li>`; }).join('')}</ul>` : '<p class="muted small">Noch keine.</p>'}
     ${st.rest > 0.005 && !b.art ? `<h4>Passende Rechnungen ${st.zuordnungen.length ? '(Rest ' + fmtE(st.rest) + ')' : ''}</h4>
-      ${vs.length ? `<div class="tw"><table class="tb"><tbody>${vs.map((x, i) => `<tr><td class="mono">${esc(x.r.nummer || '–')}</td><td>${fmtD(x.r.datum)}</td><td>${esc(x.r.partner || '')}</td><td class="num">${fmtE(x.r.brutto)}</td><td>${badge(x.st)}</td><td class="small">${esc(x.why.join(', '))}</td><td><button class="btn sm primary" data-v="${i}">Zuordnen</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Kein klarer Treffer. Rechnung suchen:</p>'}
-      <input class="inp search" type="search" id="rq" placeholder="Rechnung suchen: Nr., Name, Betrag …"><div class="tw"><table class="tb"><tbody id="rl"></tbody></table></div>` : ''}
+      <p class="small muted">Eine Buchung für mehrere Rechnungen (Sammelzahlung)? Rechnungen anhaken und unten „Ausgewählte zuordnen“.</p>
+      ${vs.length ? `<div class="tw"><table class="tb"><tbody>${vs.map((x, i) => `<tr><td><input type="checkbox" data-sel="${x.r.id}" aria-label="auswählen"></td><td class="mono">${esc(x.r.nummer || '–')}</td><td>${fmtD(x.r.datum)}</td><td>${esc(x.r.partner || '')}</td><td class="num">${fmtE(x.r.brutto)}${x.st.offen > 0.005 && x.st.offen < Math.abs(x.r.brutto) - 0.005 ? `<div class="small muted">offen ${fmtE(x.st.offen)}</div>` : ''}</td><td>${badge(x.st)}</td><td class="small">${esc(x.why.join(', '))}</td><td><button class="btn sm primary" data-v="${i}">Zuordnen</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Kein klarer Treffer. Rechnung suchen:</p>'}
+      <input class="inp search" type="search" id="rq" placeholder="Rechnung suchen: Nr., Name, Betrag …"><div class="tw"><table class="tb"><tbody id="rl"></tbody></table></div>
+      <div id="selbar" class="note small" hidden></div>` : ''}
     ${!inc && DB.aiOn && !b.kostenart && !st.zuordnungen.length ? '<button class="btn sm" data-a="kika">✨ Kostenart von der KI vorschlagen</button>' : ''}`
   });
   const again = () => { render(); bankDetail(id); };
-  const pick = async (r, amt) => { await zuordnen(r, b, 'bank', Math.min(st.rest, amt ?? st.rest) || st.rest); again(); toast('Zugeordnet.'); };
+  // nur so viel, wie bei der Rechnung offen ist – der Rest der Buchung bleibt frei für weitere Rechnungen
+  const anteil = (r, rest) => { const o = rStatus(r).offen; return r2(o > 0.005 ? Math.min(rest, o) : rest); };
+  const pick = async r => { await zuordnen(r, b, 'bank', anteil(r, st.rest)); again(); toast('Zugeordnet.'); };
+  const sel = new Map();
+  const selZeigen = () => { const bar = $('#selbar', d); if (!bar) return; const l = [...sel.values()], s = r2(l.reduce((a, r) => a + Math.max(0, rStatus(r).offen), 0));
+    bar.hidden = !l.length;
+    bar.innerHTML = l.length ? `<b>${l.length}</b> ausgewählt · offen zusammen <b>${fmtE(s)}</b> · Buchung ${fmtE(st.rest)} ${Math.abs(s - st.rest) <= 0.01 ? '<span class="pos">✓ passt genau</span>' : `<span class="neg">Differenz ${fmtE(r2(st.rest - s))}</span>`} <button class="btn sm primary" data-selgo>Ausgewählte zuordnen</button>` : ''; };
+  d.addEventListener('change', e => { const c = e.target.closest('[data-sel]'); if (!c) return; const r = S.rechnungen.find(x => x.id === c.dataset.sel); if (c.checked && r) sel.set(r.id, r); else sel.delete(c.dataset.sel); selZeigen(); });
   $('#bArt', d).onchange = async e => { await DB.update('bank', id, { art: e.target.value || null }); again(); };
   const ka = $('#bKa', d); if (ka) ka.onchange = async e => { await DB.update('bank', id, { kostenart: e.target.value || null }); render(); toast('Gespeichert.'); };
   const rq = $('#rq', d); if (rq) rq.addEventListener('input', () => {
     const q = rq.value.toLowerCase().trim(); if (q.length < 2) return $('#rl', d).innerHTML = '';
     const l = S.rechnungen.filter(r => r.richtung === (inc ? 'ausgang' : 'eingang') && q.split(/\s+/).every(w => textOf(r).includes(w))).slice(0, 20);
-    $('#rl', d).innerHTML = l.map(r => `<tr><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>${badge(rStatus(r))}</td><td><button class="btn sm primary" data-rid="${r.id}">Zuordnen</button></td></tr>`).join('') || '<tr><td class="empty">Nichts gefunden.</td></tr>';
+    $('#rl', d).innerHTML = l.map(r => `<tr><td><input type="checkbox" data-sel="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="auswählen"></td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>${badge(rStatus(r))}</td><td><button class="btn sm primary" data-rid="${r.id}">Zuordnen</button></td></tr>`).join('') || '<tr><td class="empty">Nichts gefunden.</td></tr>';
   });
   d.addEventListener('click', async e => {
     const t = e.target;
     if (t.closest('[data-delz]')) { await zuordnungLoeschen(t.closest('[data-delz]').dataset.delz); return again(); }
     if (t.closest('[data-r]')) { e.preventDefault(); return rechnungDetail(t.closest('[data-r]').dataset.r); }
-    if (t.closest('[data-v]')) { const x = vs[+t.closest('[data-v]').dataset.v]; return pick(x.r, st.rest); }
-    if (t.closest('[data-rid]')) { const r = S.rechnungen.find(x => x.id === t.closest('[data-rid]').dataset.rid); return pick(r, st.rest); }
+    if (t.closest('[data-v]')) { const x = vs[+t.closest('[data-v]').dataset.v]; return pick(x.r); }
+    if (t.closest('[data-rid]')) { const r = S.rechnungen.find(x => x.id === t.closest('[data-rid]').dataset.rid); return pick(r); }
+    if (t.closest('[data-selgo]')) {
+      let rest = st.rest; const l = [...sel.values()].sort((a, c) => (a.datum || '').localeCompare(c.datum || ''));
+      for (const r of l) { if (rest <= 0.005) break; const a = anteil(r, rest); await zuordnen(r, b, 'bank', a, l.length > 1 ? 'Sammelzahlung (' + l.length + ' Rechnungen)' : null); rest = r2(rest - a); }
+      again(); return toast(l.length + ' Rechnungen zugeordnet.');
+    }
     if (t.closest('[data-a=kika]')) {
       t.disabled = true; t.textContent = '✨ KI überlegt …';
       try { const x = await DB.aiJson(`Ordne diesen Bankabgang einer Kfz-Werkstatt einer Kostenart zu. Name: ${b.gegenpartei}. Verwendungszweck: ${b.zweck}. Betrag: ${b.betrag} EUR.
