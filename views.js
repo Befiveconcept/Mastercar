@@ -472,6 +472,9 @@ function viewAbgleich() {
   const suCols = [colDat('datum', 'Datum', s => s.datum), colTxt('beschr', 'Beschreibung', s => s.beschreibung), colNum('betrag', 'Betrag', s => s.betrag)];
   const sl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, suCols);
     return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 300).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „SumUp“.</p>` : ''}`; };
+  const bankAuto = S.bank.filter(b => bStatus(b).key === 'auto').sort((a, b) => b.datum.localeCompare(a.datum));
+  const blA = (l0, key) => { const c = [colTxt('art', 'Erkannt als', b => bStatus(b).label), ...blCols], l = colApply(key, l0, c);
+    return `<div class="tw"><table class="tb click">${colHead(key, c, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${badge(bStatus(b))}</td><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('')}</tbody></table></div>`; };
   const ek = all.filter(x => x.st.erklaert), ohneBeleg = bankAusOffen.filter(b => !b.kostenart);
   const ekCols = [COL.nr, colTxt('partner', 'Partner', x => x.r.partner), COL.datum, colNum('brutto', 'Brutto', x => x.r.brutto), colTxt('grund', 'Begründung', x => x.st.hint[0]), colTxt('notiz', 'Notiz', x => x.r.notiz)];
   const ekTab = () => { const l = colApply('abgE', ek, ekCols); return `<div class="tw"><table class="tb click">${colHead('abgE', ekCols, ek)}<tbody>${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(st.hint[0])}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('')}</tbody></table></div>`; };
@@ -486,6 +489,7 @@ function viewAbgleich() {
       info: warten ? `Nicht aufgeführt: ${warten} Zahlung${warten === 1 ? '' : 'en'} zu Rechnungen, die noch nicht importiert sind${nextNr ? ` (ab ${nextNr} bzw. nach dem ${fmtD(stand.letzt)})` : ''} oder von vor 2026 stammen – sie werden zugeordnet, sobald das nächste Werkstatt Journal kommt.` : '' },
     { k: 'kosten', t: 'Bankabgänge ohne Beleg und ohne Kostenart', ton: 'warn', l: ohneBeleg, s: b => -b.betrag, html: () => bl(ohneBeleg, 'abgK') },
     { k: 'regeln', t: '📝 Eigene Regeln & Hinweise', ton: 'ok', l: regeln(), s: () => 0, html: regelnHtml, immer: true },
+    { k: 'ohneR', t: '✓ Ohne Rechnung (automatisch erkannt)', ton: 'ok', l: bankAuto, s: b => b.betrag, html: () => blA(bankAuto, 'abgA'), info: 'Rücklastschriften, Erstattungen, Zahlungen zu Rechnungen aus 2025, Darlehen, Bankgebühren, Rückzahlungen an Kunden – dazu gibt es keine Rechnung. Falsch erkannt? Buchung anklicken und von Hand zuordnen.' },
     { k: 'erkl', t: '✓ Abweichung erklärt', ton: 'ok', l: ek, s: () => 0, html: ekTab, info: 'Cent-Differenzen, Rückzahlung laut Notiz oder laut Liste bezahlt – kein Handlungsbedarf.' }
   ];
   UI.abgOpen = UI.abgOpen || (() => { const f = R.find(x => x.l.length && x.ton !== 'ok'); return f ? { [f.k]: true } : {}; })();
