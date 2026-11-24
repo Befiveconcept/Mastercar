@@ -163,36 +163,58 @@ function rechnungForm(dir, r = null) {
 }
 
 // Offene (noch freie) Zahlungen zu einer Rechnung, die passendsten zuerst
-function zahlungVorschlaege(r, st = rStatus(r)) {
+// alle Zahlungen der passenden Richtung, bewertet; mitBelegt = auch schon zugeordnete / per Regel eingeordnete
+function zahlungVorschlaege(r, st = rStatus(r), mitBelegt = false) {
   const isA = r.richtung === 'ausgang';
   return [
-    ...S.bank.filter(b => (isA ? b.betrag > 0 : b.betrag < 0) && !b.art).map(b => ({ kind: 'bank', p: b, rest: bStatus(b).rest })),
-    ...(isA ? S.sumup.filter(sumOk).map(s => ({ kind: 'sumup', p: { ...s, zweck: s.beschreibung }, rest: sStatus(s).rest })) : []),
-    ...S.kasse.filter(k => (isA ? k.betrag > 0 : k.betrag < 0)).map(k => ({ kind: 'kasse', p: { ...k, zweck: k.text, gegenpartei: 'Kasse' }, rest: kStatus(k).rest }))
-  ].filter(x => x.rest > 0.005).map(x => ({ ...x, ...score(x.p, r, x.rest, st.offen) })).sort((a, b) => b.s - a.s || b.p.datum.localeCompare(a.p.datum));
+    ...S.bank.filter(b => (isA ? b.betrag > 0 : b.betrag < 0) && (mitBelegt || !b.art)).map(b => { const bs = bStatus(b); return { kind: 'bank', p: b, rest: bs.rest, zs: bs.zuordnungen, art: b.art }; }),
+    ...(isA ? S.sumup.filter(sumOk).map(s => { const ss = sStatus(s); return { kind: 'sumup', p: { ...s, zweck: s.beschreibung }, rest: ss.rest, zs: ss.zuordnungen }; }) : []),
+    ...S.kasse.filter(k => (isA ? k.betrag > 0 : k.betrag < 0)).map(k => { const ks = kStatus(k); return { kind: 'kasse', p: { ...k, zweck: k.text, gegenpartei: 'Kasse' }, rest: ks.rest, zs: ks.zuordnungen }; })
+  ].filter(x => mitBelegt || x.rest > 0.005).map(x => ({ ...x, ...score(x.p, r, x.rest > 0.005 ? x.rest : Math.abs(x.p.betrag), st.offen) })).sort((a, b) => b.s - a.s || b.p.datum.localeCompare(a.p.datum));
 }
-// Für eine Rechnung eine offene Zahlung (Bank oder SumUp) aussuchen
+// Für eine Rechnung eine Zahlung (Bank, SumUp, Kasse) aussuchen – auch eine, die (vielleicht falsch) schon woanders hängt
 function zahlungPicker(r) {
   buildIdx();
-  const st = rStatus(r), isA = r.richtung === 'ausgang';
-  const pays = zahlungVorschlaege(r, st);
+  const st = rStatus(r);
+  const pays = zahlungVorschlaege(r, st, true).filter(x => !(x.zs || []).some(z => z.rechnung_id === r.id));
+  // Suchtext: Auftraggeber, Zweck, Betrag, Datum – dazu der Firmenname dieser Rechnung, wenn die Zahlung zu ihr passt („bghm“ findet „Berufsgenossenschaft Holz und Metall“)
+  // und die Rechnungen, denen die Zahlung schon zugeordnet ist
+  const RE = new Map(S.rechnungen.map(x => [x.id, x]));
+  const belegtTxt = x => (x.zs || []).map(z => { const o = RE.get(z.rechnung_id); return o ? `${o.nummer || ''} ${o.partner || ''} (${fmtE(z.betrag)})` : ''; }).filter(Boolean).join(' · ');
+  pays.forEach(x => { x.such = [x.p.gegenpartei, x.p.zweck, fmtE(x.p.betrag), x.p.betrag, fmtD(x.p.datum), partnerPasst(r, x.p) ? r.partner : '', belegtTxt(x), x.art ? B_ST[x.art]?.[0] : ''].join(' ').toLowerCase(); });
+  const frei = x => x.rest > 0.005 && !x.art;
   const rowsHtml = q => {
-    const ql = q.toLowerCase().trim(), l = ql ? pays.filter(x => [x.p.gegenpartei, x.p.zweck, fmtE(x.p.betrag), x.p.betrag, fmtD(x.p.datum)].join(' ').toLowerCase().includes(ql)) : pays;
-    return l.slice(0, 40).map((x, i) => `<tr><td>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'}</td><td>${fmtD(x.p.datum)}</td><td>${esc(x.p.gegenpartei || '')}<div class="zweck small">${esc(x.p.zweck || '')}</div></td><td class="num">${fmtE(x.rest)}</td>
-      <td class="small">${x.s >= 50 ? '<b class="pos">passt gut</b><br>' : ''}${esc(x.why.join(', '))}</td><td><button class="btn sm primary" data-pick="${pays.indexOf(x)}">Zuordnen</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Keine offenen Zahlungen gefunden.</td></tr>';
+    const w = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    // ohne Suche: freie Zahlungen + schon belegte, die sehr gut passen (Name und Betrag) – mit Suche: alles, was passt
+    const l = w.length ? pays.filter(x => w.every(t => x.such.includes(t))) : pays.filter(x => frei(x) || x.s >= 50);
+    return l.slice(0, 50).map(x => { const i = pays.indexOf(x), bt = belegtTxt(x);
+      return `<tr><td>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'}</td><td>${fmtD(x.p.datum)}</td><td>${esc(x.p.gegenpartei || '')}<div class="zweck small">${esc(x.p.zweck || '')}</div>
+        ${bt ? `<div class="small"><span class="badge st-warn">schon zugeordnet</span> ${esc(bt)}</div>` : x.art ? `<div class="small"><span class="badge st-info">${esc(B_ST[x.art]?.[0] || x.art)}</span></div>` : ''}</td>
+        <td class="num">${fmtE(Math.abs(x.p.betrag))}${x.rest > 0.005 && x.rest < Math.abs(x.p.betrag) - 0.005 ? `<div class="small muted">frei ${fmtE(x.rest)}</div>` : ''}</td>
+        <td class="small">${x.s >= 50 ? '<b class="pos">passt gut</b><br>' : ''}${esc(x.why.join(', '))}</td>
+        <td>${frei(x) || (x.art && !bt) ? `<button class="btn sm primary" data-pick="${i}">Zuordnen</button>` : `<button class="btn sm" data-umh="${i}" title="Von der anderen Rechnung lösen und dieser zuordnen">Hierher umhängen</button>`}</td></tr>`; }).join('')
+      || `<tr><td colspan="6" class="empty">${w.length ? 'Keine Zahlung mit diesem Text gefunden – ist der Kontoauszug für den Zeitraum schon importiert?' : 'Keine offenen Zahlungen gefunden – oben suchen (Name, Betrag oder Datum), dann erscheinen auch schon zugeordnete.'}</td></tr>`;
   };
   const d = openSheet({
     title: 'Zahlung zuordnen · ' + (r.nummer || r.partner), wide: true, noOk: true, html: `
-    <p class="small">Offen: <b>${fmtE(st.offen)}</b> von ${fmtE(r.brutto)}. Die passendsten Zahlungen stehen oben.</p>
-    <input class="inp search" type="search" placeholder="Name, Verwendungszweck, Betrag …" id="pq">
+    <p class="small">Offen: <b>${fmtE(st.offen)}</b> von ${fmtE(r.brutto)}. Die passendsten Zahlungen stehen oben. Die Suche findet auch Zahlungen, die schon einer anderen Rechnung zugeordnet sind.</p>
+    <input class="inp search" type="search" placeholder="Name, Verwendungszweck, Betrag, Datum …" id="pq">
     <label class="fld inline"><span>Betrag zuordnen</span><input class="inp" id="pb" type="number" step="0.01" placeholder="ganze offene Zahlung"></label>
     <div class="tw"><table class="tb"><tbody id="pl">${rowsHtml('')}</tbody></table></div>`
   });
   $('#pq', d).addEventListener('input', e => $('#pl', d).innerHTML = rowsHtml(e.target.value));
   d.addEventListener('click', async e => {
-    const b = e.target.closest('[data-pick]'); if (!b) return;
-    const x = pays[+b.dataset.pick], amt = parseNum($('#pb', d).value) ?? x.rest;
-    await zuordnen(r, x.p, x.kind, amt); closeSheet(); render(); rechnungDetail(r.id); toast('Zugeordnet.');
+    const b = e.target.closest('[data-pick]'), u = e.target.closest('[data-umh]'); if (!b && !u) return;
+    const x = pays[b ? +b.dataset.pick : +u.dataset.umh];
+    if (u) {
+      const alt = (x.zs || []).map(z => { const o = RE.get(z.rechnung_id); return o ? `${o.nummer || 'ohne Nr.'} · ${o.partner || ''} · ${fmtD(o.datum)} (${fmtE(z.betrag)})` : ''; }).filter(Boolean).join('\n');
+      if (!confirm(`Diese Zahlung hängt schon an:\n${alt}\n\nDort lösen und dieser Rechnung (${r.nummer || r.partner}) zuordnen?\nDie andere Rechnung steht danach wieder auf „offen“.`)) return;
+      for (const z of x.zs) await zuordnungLoeschen(z.id);
+      const ids = x.zs.map(z => z.rechnung_id);
+      for (const id of ids) { const o = S.rechnungen.find(y => y.id === id); if (o && istBezahltLaut(o.status_excel)) await DB.update('rechnungen', id, { status_excel: o.zahlart === 'sepa' ? 'Abbuchung offen' : 'Offen' }); }
+    }
+    const amt = parseNum($('#pb', d).value) ?? Math.min(st.offen > 0.005 ? st.offen : Math.abs(x.p.betrag), u ? Math.abs(x.p.betrag) : x.rest > 0.005 ? x.rest : Math.abs(x.p.betrag));
+    await zuordnen(r, x.p, x.kind, amt); closeSheet(); render(); rechnungDetail(r.id); toast(u ? 'Umgehängt.' : 'Zugeordnet.');
   });
 }
 
