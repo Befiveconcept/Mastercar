@@ -6,7 +6,7 @@ function zuZahlen() {
   buildIdx();
   return S.rechnungen.filter(r => r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art) && (+r.brutto || 0) > 0)
     .map(r => ({ r, st: rStatus(r) }))
-    .filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && x.st.offen > 0.005 && !/^abbuchung/i.test(x.r.status_excel || '') && x.r.zahlart !== 'sepa')
+    .filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && x.st.offen > 0.005 && !istAbbuchung(x.r))
     .map(x => ({ ...x, faellig: faelligAm(x.r) }))
     .sort((a, b) => (a.faellig || '9999').localeCompare(b.faellig || '9999') || (a.r.partner || '').localeCompare(b.r.partner || ''));
 }

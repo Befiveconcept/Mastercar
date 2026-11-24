@@ -150,7 +150,7 @@ const DB = (() => {
   const nochmal = async (f, versuche = 3) => {
     for (let i = 1; ; i++) {
       try { return await f(); }
-      catch (e) { const vorüber = e.code === 'rate_limited' || e.code === 'unavailable' || /fetch|network|timeout|load failed|5\d\d/i.test(String(e.message || e));
+      catch (e) { const vorüber = e.code === 'rate_limited' || e.code === 'unavailable' || e.code === 'overloaded' || /fetch|network|timeout|load failed|5\d\d/i.test(String(e.message || e));
         if (!vorüber || i >= versuche) throw e; await new Promise(r => setTimeout(r, i === 1 ? 2000 : 6000)); }
     }
   };
@@ -159,7 +159,18 @@ const DB = (() => {
     const messages = [{ role: 'user', content: prompt }];
     return nochmal(async () => {
       const { data, error } = await sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } });
-      if (error) { const st = error.context && error.context.status; throw Object.assign(new Error(error.message), { code: st === 429 ? 'rate_limited' : st === 403 ? 'not_allowed' : st === 401 ? 'not_signed_in' : 'unavailable' }); }
+      if (error) {
+        // Den eigentlichen Grund aus der Antwort der Edge Function lesen (sonst bleibt nur „non-2xx status code“)
+        const ctx = error.context, st = ctx && ctx.status; let b = null;
+        try { if (ctx && typeof ctx.json === 'function') b = await (ctx.bodyUsed ? null : ctx.json()); } catch (x) { }
+        const det = String((b && (b.detail || b.message)) || '');
+        let code = (b && b.error) || (st === 429 ? 'rate_limited' : st === 403 ? 'not_allowed' : st === 401 ? 'not_signed_in' : st === 413 ? 'too_large' : st === 504 || st === 546 ? 'timeout' : 'unavailable');
+        if (/credit balance|billing|purchase credits|spend limit|usage limit/i.test(det)) code = 'credit';
+        else if (b && (b.status === 529 || b.status === 503) || /overloaded/i.test(det)) code = 'overloaded';
+        else if (/too large|too long|exceeds|maximum/i.test(det) && /pdf|page|size|byte|token|prompt/i.test(det)) code = 'too_large';
+        console.warn('KI-Fehler', st, b || error.message);
+        throw Object.assign(new Error(det || error.message), { code, detail: det, status: (b && b.status) || st });
+      }
       if (data && data.error) throw Object.assign(new Error(data.error), { code: data.error });
       return String(data && data.text || '');
     });
@@ -176,5 +187,14 @@ const DB = (() => {
   return { cloud, aiOn, init, signIn, signOut, resetPw, setPw, isStaff, loadAll, insert, update, remove, setSetting, upload, fileUrl, removeFile, ai, aiJson, resetLocal, saveLocal, get sb() { return sb; } };
 })();
 
-const AI_ERR = { offline: 'Die KI ist nur in der Online-Version (mit Supabase) verfügbar.', rate_limited: 'Die KI ist gerade ausgelastet – bitte gleich nochmal.', not_allowed: 'Kein Zugriff auf die KI (E-Mail nicht im Team?).', not_signed_in: 'Bitte neu anmelden.', bad_json: 'Die KI-Antwort war unvollständig – bitte nochmal versuchen.', refused: 'Die KI hat die Anfrage abgelehnt.', api_key_invalid: 'Anthropic-API-Schlüssel in Supabase fehlt oder ist ungültig.' };
-const aiErr = e => AI_ERR[e && e.code] || 'Die KI ist gerade nicht erreichbar.';
+const AI_ERR = { offline: 'Die KI ist nur in der Online-Version (mit Supabase) verfügbar.', rate_limited: 'Die KI ist gerade ausgelastet – bitte gleich nochmal.', not_allowed: 'Kein Zugriff auf die KI (E-Mail nicht im Team?).', not_signed_in: 'Bitte neu anmelden.', bad_json: 'Die KI-Antwort war unvollständig – bitte nochmal versuchen.', refused: 'Die KI hat die Anfrage abgelehnt.', api_key_invalid: 'Anthropic-API-Schlüssel in Supabase fehlt oder ist ungültig.',
+  credit: 'Das Guthaben beim KI-Anbieter (Anthropic) ist aufgebraucht oder das Monatslimit erreicht – bitte in der Anthropic Console unter „Billing“ aufladen bzw. das Limit erhöhen, dann den Stapel erneut verarbeiten.',
+  overloaded: 'Die KI ist gerade überlastet (Störung bei Anthropic) – in ein paar Minuten nochmal versuchen.',
+  too_large: 'Die Datei ist zu groß für die KI (max. ca. 30 MB bzw. 100 Seiten) – bitte verkleinern oder aufteilen.',
+  timeout: 'Die KI hat für diese Datei zu lange gebraucht (Zeitlimit) – bitte nochmal, notfalls die Datei einzeln hochladen.' };
+const aiErr = e => {
+  if (AI_ERR[e && e.code]) return AI_ERR[e.code];
+  const d = e && e.detail ? ': ' + String(e.detail).slice(0, 180) : e && e.status ? ' (Fehler ' + e.status + ')' : '';
+  if (e && (e.code === 'bad_request' || e.code === 'api_error')) return 'Die KI hat die Anfrage nicht angenommen' + d + '.';
+  return 'Die KI ist gerade nicht erreichbar' + d + '.';
+};

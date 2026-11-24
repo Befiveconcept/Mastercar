@@ -7,6 +7,42 @@ function buildIdx() {
   const push = (map, k, z) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(z); };
   S.zuordnungen.forEach(z => { push(IDX.zByR, z.rechnung_id, z); push(IDX.zByB, z.bank_id, z); push(IDX.zByS, z.sumup_id, z); push(IDX.zByK, z.kasse_id, z); });
   S.rechnungen.forEach(r => { if (r.bezug_id && r.bezug_id !== r.id) push(IDX.gsByR, r.bezug_id, r); });   // Gutschriften/Korrekturen je Rechnung
+  PARTNER_LERN = null;   // gelernte Namen bei Bedarf neu aufbauen
+}
+/* ---------- Gehört eine Zahlung zu diesem Rechnungssteller? ----------
+   1) gleiches Namenswort · 2) bekannte Abkürzungen („BGHM“ = Berufsgenossenschaft Holz und Metall)
+   3) gelernt: diese IBAN / dieser Auftraggeber wurde schon einmal einer Rechnung dieser Firma zugeordnet
+   4) Tippfehler im Namen (gleicher Wortanfang, mind. 6 Buchstaben: „Stellantids“ = „Stellantis“) */
+const NAME_ALIAS = [
+  [/\bbghm\b|berufsgenossenschaft\s*holz/i, /berufsgenossenschaft\s*holz|\bbg\s*holz|\bbghm\b/i],
+  [/techniker|^\s*tk\b/i, /techniker\s*krankenkasse|\btk\b/i],
+  [/rundfunk|beitragsservice|\bgez\b/i, /rundfunk|beitragsservice|ard\s*zdf/i],
+  [/stadtbetrieb|stadt\s*bornheim/i, /stadtbetrieb|stadt\s*bornheim/i],
+  [/stellanti|distrigo/i, /stellantis|distrigo|\bpsa\b/i],
+  [/minijob|knappschaft/i, /minijob|knappschaft/i],
+  [/finanzamt/i, /finanzamt|steuerverwaltung|bundeskasse|landeshauptkasse/i],
+  [/rentenversicherung|\bdrv\b/i, /rentenversicherung/i],
+  [/\bsvlfg\b|sozialversicherung.*landwirt/i, /svlfg|sozialversicherung.*landwirt/i],
+];
+const ALLERWELT = /^(servic|autoha|handel|techni|intern|deutsc|versic|holdin|gesell|verwal|kfzser|mobili|logist|partne|vertri|zentra|system|consul|europe|german|onlin)/;   // zu allgemein für den Wortanfang-Vergleich
+let PARTNER_LERN = null;
+function partnerLernen() {
+  const m = new Map(), put = (k, p) => { if (!k || !p) return; if (!m.has(k)) m.set(k, new Set()); m.get(k).add(p); };
+  const bank = new Map(S.bank.map(b => [b.id, b])), re = new Map(S.rechnungen.map(r => [r.id, r]));
+  S.zuordnungen.forEach(z => { const b = z.bank_id && bank.get(z.bank_id), r = re.get(z.rechnung_id); if (!b || !r || !r.partner) return;
+    const p = norm(r.partner); if (b.iban) put('i:' + normNr(b.iban), p); if (b.gegenpartei) put('g:' + norm(b.gegenpartei), p); });
+  return (PARTNER_LERN = m);
+}
+function partnerPasst(r, pay, NS) {
+  const txt = (pay.gegenpartei || '') + ' ' + (pay.zweck || pay.beschreibung || pay.text || '');
+  NS = NS || new Set(nameTok(txt));
+  if (nameHit(r.partner, NS)) return true;
+  if (NAME_ALIAS.some(([a, b]) => a.test(r.partner || '') && b.test(txt))) return true;
+  const L = PARTNER_LERN || partnerLernen(), p = norm(r.partner);
+  if (pay.iban && (L.get('i:' + normNr(pay.iban)) || new Set()).has(p)) return true;
+  if (pay.gegenpartei && (L.get('g:' + norm(pay.gegenpartei)) || new Set()).has(p)) return true;
+  const ok = w => w.length >= 6 && !ALLERWELT.test(w), a = nameTok(r.partner).filter(ok), b = [...NS].filter(ok);
+  return a.some(w => b.some(v => v.slice(0, 6) === w.slice(0, 6)));
 }
 // Zu zahlender Betrag (Skonto abgezogen)
 const sollOf = r => r2((+r.brutto || 0) - (+r.skonto || 0));
@@ -169,7 +205,7 @@ function score(pay, r, restPay, restR) {
   let s = 0; const why = [];
   if (r.nummer && nrHit(r.nummer, text)) { s += 60; why.push('Rechnungsnr. im Text'); }
   if (r.kennzeichen && normNr(text).includes(normNr(r.kennzeichen)) && normNr(r.kennzeichen).length >= 4) { s += 20; why.push('Kennzeichen'); }
-  if (nameHit(r.partner, text)) { s += 25; why.push('Name'); }
+  if (partnerPasst(r, pay)) { s += 25; why.push('Name'); }
   if (r.iban && pay.iban && normNr(r.iban) === normNr(pay.iban)) { s += 30; why.push('IBAN'); }
   if (eq(restPay, restR) && restR > 0.005) { s += 30; why.push('Betrag = offener Betrag'); }
   else if (eq(restPay, r.brutto)) { s += 20; why.push('Betrag = Rechnungsbetrag'); }
@@ -190,7 +226,7 @@ async function autoAbgleich() {
   if (typeof regelnAnwenden === 'function') await regelnAnwenden().catch(e => console.warn(e));
   if (typeof dlpNachziehen === 'function') await dlpNachziehen().catch(e => console.warn(e));   // TÜV/DEKRA: durchlaufender Posten
   if (typeof fixNachziehen === 'function') await fixNachziehen().catch(e => console.warn(e));   // fehlendes „variabel / fix“ ergänzen   // eigene Regeln zuerst (z. B. Bareinzahlungen = Umbuchung)
-  buildIdx();
+  buildIdx(); partnerLernen();
   const newZ = [], extraR = new Map(), extraP = new Map();
   // offener Betrag nur aus echten Zahlungen (auch „laut Liste bezahlt“ darf noch seine Zahlung finden)
   const paidR = new Map(); S.zuordnungen.forEach(z => paidR.set(z.rechnung_id, (paidR.get(z.rechnung_id) || 0) + (+z.betrag || 0)));
@@ -244,6 +280,15 @@ async function autoAbgleich() {
     }
   }
 
+  // Welche offenen Rechnungen ergeben zusammen genau den Zahlbetrag? (älteste zuerst, höchstens 5 Rechnungen)
+  const teilsumme = (list, ziel, max = 5) => {
+    const L = list.filter(r => restR(r) > 0.005).sort((a, b) => (a.datum || '').localeCompare(b.datum || '')).slice(0, 16); let best = null;
+    const rec = (i, acc, pick) => { if (best) return; if (pick.length && eq(acc, ziel)) { best = pick.slice(); return; }
+      if (pick.length >= max || i >= L.length || acc > ziel + 0.01) return;
+      pick.push(L[i]); rec(i + 1, acc + restR(L[i]), pick); pick.pop(); rec(i + 1, acc, pick); };
+    rec(0, 0, []); return best;
+  };
+  const skontoUpd = [];
   function matchPay(pay, kind, pool, restPay, amountOnlyOk = false) {
     const text = (pay.zweck || pay.beschreibung || pay.text || '') + ' ' + (pay.gegenpartei || '');
     const P = prepText(expandNr(text)), NS = new Set(nameTok(text));
@@ -271,22 +316,33 @@ async function autoAbgleich() {
     }
     if (byNr.length > 1) {
       // mehrere Nummern-Treffer: zuerst der, bei dem auch Name bzw. Betrag passt (zufällige Ziffernfolgen, z. B. in Mandats-IDs, aussortieren)
-      const nb = byNr.filter(r => nameHit(r.partner, NS) && eq(restR(r), restPay));
+      const nb = byNr.filter(r => partnerPasst(r, pay, NS) && eq(restR(r), restPay));
       if (nb.length === 1) { add(nb[0], pay, kind, restPay, 'Rechnungsnummer, Name und Betrag'); return true; }
-      const nn = byNr.filter(r => nameHit(r.partner, NS));
+      const nn = byNr.filter(r => partnerPasst(r, pay, NS));
       if (nn.length === 1 && restR(nn[0]) > 0.005) { add(nn[0], pay, kind, restPay, 'Rechnungsnummer und Name'); return true; }
       const open = byNr.filter(r => restR(r) > 0.005), tot = sum(open, restR);
       if (open.length && eq(tot, restPay)) { open.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (mehrere Rechnungsnummern)')); return true; }
+      // dieselbe Nummer bei mehreren Belegen (z. B. Beitragsbescheid + Nachtrag): genau einer oder ein Teil davon ergibt den Betrag
+      const ex = open.filter(r => eq(restR(r), restPay));
+      if (ex.length === 1) { add(ex[0], pay, kind, restPay, 'Rechnungsnummer und Betrag'); return true; }
+      const ts = !ex.length && teilsumme(open, restPay);
+      if (ts) { ts.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Rechnungsnummer, Summe)')); return true; }
       return false; // unklar → von Hand
     }
     const openPool = pool.filter(r => restR(r) > 0.005 && !(r.datum && pay.datum && daysBetween(r.datum, pay.datum) < -5));
     // 2) Name/IBAN + genau der offene Betrag
-    const named = openPool.filter(r => nameHit(r.partner, NS) || (r.iban && pay.iban && normNr(r.iban) === normNr(pay.iban)));
+    const named = openPool.filter(r => partnerPasst(r, pay, NS) || (r.iban && pay.iban && normNr(r.iban) === normNr(pay.iban)));
     const nAmt = named.filter(r => eq(restR(r), restPay));
     if (nAmt.length === 1) { add(nAmt[0], pay, kind, restPay, 'Name/IBAN und Betrag'); return true; }
     if (nAmt.length > 1) { nAmt.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); add(nAmt[0], pay, kind, restPay, 'Name/IBAN und Betrag (älteste offene)'); return true; }
-    // 3) Name + Summe aller offenen Rechnungen dieses Partners
+    // 3) Name + Summe aller offenen Rechnungen dieses Partners – oder eines Teils davon (Sammel-Lastschrift über mehrere Rechnungen)
     if (named.length > 1 && eq(sum(named, restR), restPay)) { named.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Name, Summe)')); return true; }
+    if (named.length > 1) { const ts = teilsumme(named, restPay); if (ts && ts.length > 1) { ts.forEach(r => add(r, pay, kind, restR(r), 'Sammelzahlung (Name, Summe von ' + ts.length + ' Rechnungen)')); return true; } }
+    // 3b) Abbuchung/Überweisung mit Skonto (2 % oder 3 % abgezogen): Skonto an der Rechnung eintragen
+    if (kind === 'bank' && pay.betrag < 0) {
+      const sk = named.filter(r => [0.02, 0.03].some(p => Math.abs(restR(r) * (1 - p) - restPay) <= 0.02));
+      if (sk.length === 1) { const r = sk[0], s = r2(restR(r) - restPay); skontoUpd.push([r, s]); add(r, pay, kind, restPay, 'Name und Betrag mit Skonto (' + fmtE(s) + ' abgezogen)'); return true; }
+    }
     // 4) Nur Betrag – nur wenn eindeutig (genau eine offene Rechnung mit diesem Betrag)
     const amt = openPool.filter(r => eq(restR(r), restPay) && (!r.datum || !pay.datum || daysBetween(r.datum, pay.datum) <= 90));
     if (amt.length === 1 && amountOnlyOk) { add(amt[0], pay, kind, restPay, 'Nur Betrag (eindeutig) – bitte prüfen'); return true; }
@@ -333,6 +389,7 @@ async function autoAbgleich() {
     const bar = c.filter(r => r.zahlart === 'bar'), pick = bar.length === 1 ? bar[0] : c.length === 1 ? c[0] : null;
     if (pick) { add(pick, k, 'kasse', rest, 'Kasse: Betrag und Datum'); kSigBelegt.add(kSig(k)); }
   }
+  for (const [r, s] of skontoUpd) await DB.update('rechnungen', r.id, { skonto: r2((+r.skonto || 0) + s), notiz: [r.notiz, 'Skonto ' + fmtE(s) + ' beim Bezahlen abgezogen'].filter(Boolean).join(' · ') });
   for (const { g, r } of gutLinks) await DB.update('rechnungen', g.id, { bezug_id: r.id, notiz: [g.notiz, `Mit ${r.nummer || 'Rechnung'} in der Lastschrift verrechnet`].filter(Boolean).join(' · ') });
   if (gutLinks.length) buildIdx();
   if (newZ.length) { await DB.insert('zuordnungen', newZ); await statusNachziehen(newZ.map(z => z.rechnung_id)); }
@@ -380,8 +437,15 @@ function abgleichBericht(res) {
   };
   const zeile = b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td class="num">${fmtE(b.betrag)}</td><td>${esc((b.gegenpartei || '').slice(0, 32))}</td><td class="muted">${esc(grund(b))}</td></tr>`;
   const ausGrund = () => 'keine passende Eingangsrechnung in der App';
+  // Welcher Zeitraum ist auf der Bank überhaupt da? Eine Rechnung, die vor dem ersten importierten Bankumsatz bezahlt wurde, kann nichts finden.
+  const bd = S.bank.map(b => b.datum).filter(Boolean).sort(), von = bd[0], bis = bd[bd.length - 1];
+  const monate = new Set(bd.filter(d => d >= START_DATUM).map(d => d.slice(0, 7))), fehlM = [];
+  if (von) for (let d = START_DATUM.slice(0, 7); d <= (bis || '').slice(0, 7); d = addDays(d + '-01', 32).slice(0, 7)) if (!monate.has(d)) fehlM.push(monthLabel(d));
+  const offenE = S.rechnungen.filter(r => r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art) && ['offen', 'ueberfaellig', 'teil'].includes(rStatus(r).key) && (+r.brutto || 0) > 0);
+  const vorBank = von ? offenE.filter(r => r.datum && addDays(r.datum, 60) < von).length : 0;
   openSheet({ title: 'Abgleich fertig', wide: true, noOk: true, html: `
     <p>${res.n ? `✓ <b>${res.n}</b> Zahlung${res.n === 1 ? '' : 'en'} neu zugeordnet` : 'Nichts Neues eindeutig zuzuordnen'}${res.links ? ` · ${res.links} SumUp-Umsätze mit Auszahlungen verknüpft` : ''}.</p>
+    <p class="small">${von ? `Bankumsätze in der App: <b>${fmtD(von)} – ${fmtD(bis)}</b> (${S.bank.length}).` : '<b>Noch keine Bankumsätze importiert.</b>'}${fehlM.length ? ` <span class="neg">Ohne einen einzigen Bankumsatz: ${fehlM.join(', ')} – diesen Zeitraum bitte als Bank-CSV nachladen, sonst finden die Rechnungen daraus keine Zahlung.</span>` : ''}${vorBank ? ` ${vorBank} offene Eingangsrechnungen sind älter als die Bankdaten.` : ''}</p>
     ${ein.length ? `<details open><summary><b>${ein.length}</b> Geldeingänge auf der Bank noch ohne Rechnung</summary><div class="tw"><table class="tb click"><tbody>${ein.map(zeile).join('')}</tbody></table></div></details>` : '<p>✓ Alle Geldeingänge auf der Bank sind zugeordnet.</p>'}
     ${aus.length ? `<details><summary><b>${aus.length}</b> Abbuchungen noch ohne Eingangsrechnung</summary><div class="tw"><table class="tb click"><tbody>${aus.map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td class="num">${fmtE(b.betrag)}</td><td>${esc((b.gegenpartei || '').slice(0, 32))}</td><td class="muted">${ausGrund(b)}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
     <p class="small muted">Sobald die fehlenden Rechnungen in der App sind (Werkstatt Journal bzw. Belege hochladen), läuft der Abgleich automatisch – oder hier nochmal auf „⟳ Abgleichen“.</p>` });

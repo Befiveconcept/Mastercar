@@ -221,9 +221,12 @@ function opTabelle(dir, L) {
   const it = l => l.map(x => ({ t: 'r', id: x.r.id, v: x.st.offen, info: x.tage > 0 && x.st.offen > 0 ? x.tage + ' Tage überfällig' : 'fällig ' + fmtD(x.f) }));
   const was = dir === 'ausgang' ? 'Forderung' : 'Verbindlichkeit';
   const tot = OP_B.map((_, i) => sum(L.filter(x => x.b === i), x => x.st.offen));
-  return `<div class="tw"><table class="tb click"><thead><tr><th>${dir === 'ausgang' ? 'Kunde' : 'Lieferant'}</th><th class="num">Belege</th>${OP_B.map(b => `<th class="num">${b}</th>`).join('')}<th class="num">Offen gesamt</th></tr></thead><tbody>
-    ${grp.map(p => `<tr ${aKlick(it(p.l), 'Offen · ' + p.name)}><td>${esc(p.name)}</td><td class="num">${p.l.length}</td>${p.b.map((v, i) => `<td class="num ${i >= 2 && v > 0.005 ? 'neg' : ''}">${aN2(v)}</td>`).join('')}<td class="num"><b>${aN2(p.s)}</b></td></tr>`).join('') || `<tr><td colspan="8" class="empty">Keine offenen ${was === 'Forderung' ? 'Forderungen' : 'Verbindlichkeiten'}.</td></tr>`}
-    ${grp.length ? `<tr class="g-sum"><td><b>Summe</b></td><td class="num">${L.length}</td>${tot.map((v, i) => `<td class="num" ${v ? aKlick(it(L.filter(x => x.b === i)), was + 'en · ' + OP_B[i]) : ''}><b>${aN2(v)}</b></td>`).join('')}<td class="num"><b>${aN2(sum(L, x => x.st.offen))}</b></td></tr>` : ''}
+  // Lieferanten: getrennt nach „wird abgebucht“ und „müssen wir selbst überweisen“
+  const E = dir === 'eingang', AB = [['noch Abbuchung offen', x => istAbbuchung(x.r)], ['noch manuelle Zahlung offen', x => !istAbbuchung(x.r)]];
+  const abZ = (l, fett, titel) => E ? AB.map(([n, f]) => { const ll = l.filter(f), v = sum(ll, x => x.st.offen); return `<td class="num" ${titel && v ? aKlick(it(ll), n + ' · ' + titel) : ''}>${fett ? '<b>' + aN2(v) + '</b>' : aN2(v)}</td>`; }).join('') : '';
+  return `<div class="tw"><table class="tb click"><thead><tr><th>${dir === 'ausgang' ? 'Kunde' : 'Lieferant'}</th><th class="num">Belege</th>${OP_B.map(b => `<th class="num">${b}</th>`).join('')}${E ? AB.map(a => `<th class="num">${a[0]}</th>`).join('') : ''}<th class="num">Offen gesamt</th></tr></thead><tbody>
+    ${grp.map(p => `<tr ${aKlick(it(p.l), 'Offen · ' + p.name)}><td>${esc(p.name)}</td><td class="num">${p.l.length}</td>${p.b.map((v, i) => `<td class="num ${i >= 2 && v > 0.005 ? 'neg' : ''}">${aN2(v)}</td>`).join('')}${abZ(p.l)}<td class="num"><b>${aN2(p.s)}</b></td></tr>`).join('') || `<tr><td colspan="10" class="empty">Keine offenen ${was === 'Forderung' ? 'Forderungen' : 'Verbindlichkeiten'}.</td></tr>`}
+    ${grp.length ? `<tr class="g-sum"><td><b>Summe</b></td><td class="num">${L.length}</td>${tot.map((v, i) => `<td class="num" ${v ? aKlick(it(L.filter(x => x.b === i)), was + 'en · ' + OP_B[i]) : ''}><b>${aN2(v)}</b></td>`).join('')}${abZ(L, true, 'alle Lieferanten')}<td class="num"><b>${aN2(sum(L, x => x.st.offen))}</b></td></tr>` : ''}
     </tbody></table></div>`;
 }
 function viewOp() {
@@ -236,6 +239,8 @@ function viewOp() {
       <div class="k hi"><div class="kv">${fmtE(sum(F, x => x.st.offen))}</div><div class="kl">Forderungen (Kunden schulden uns)</div></div>
       <div class="k"><div class="kv ${ue(F) > 0 ? 'neg' : ''}">${fmtE(ue(F))}</div><div class="kl">davon überfällig</div></div>
       <div class="k"><div class="kv">${fmtE(sum(V, x => x.st.offen))}</div><div class="kl">Verbindlichkeiten (wir schulden)</div></div>
+      <div class="k"><div class="kv">${fmtE(sum(V.filter(x => istAbbuchung(x.r)), x => x.st.offen))}</div><div class="kl">davon noch Abbuchung offen</div></div>
+      <div class="k"><div class="kv">${fmtE(sum(V.filter(x => !istAbbuchung(x.r)), x => x.st.offen))}</div><div class="kl">davon noch manuelle Zahlung offen</div></div>
       <div class="k"><div class="kv ${ue(V) > 0 ? 'neg' : ''}">${fmtE(ue(V))}</div><div class="kl">davon überfällig</div></div>
     </section>
     <p class="small muted">Stand heute, über alle Jahre. Fälligkeit = Fälligkeitsdatum der Rechnung, sonst Rechnungsdatum + ${ZIEL_TAGE()} Tage Zahlungsziel. Offene Gutschriften stehen mit Minus bei „nicht fällig“. Zeile anklicken = Rechnungen dahinter.</p>

@@ -100,7 +100,10 @@ function viewStart() {
     <button class="k" data-act="go" data-v="guv" data-t="guv"><div class="kv ${K.ergebnis < 0 ? 'neg' : ''}">${fmtE(K.ergebnis)}</div><div class="kl">Ergebnis netto → GuV</div></button>
     <button class="k" data-act="go" data-v="ausgang" data-f="offen"><div class="kv">${fmtE(sum(K.offenA, x => x.st.offen))}</div><div class="kl">Offene Kundenrechnungen · ${K.offenA.length}</div></button>
     <button class="k ${K.ueberA.length ? 'alarm' : ''}" data-act="go" data-v="ausgang" data-f="ueberfaellig"><div class="kv">${fmtE(sum(K.ueberA, x => x.st.offen))}</div><div class="kl">davon überfällig · ${K.ueberA.length}</div></button>
-    <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen · ${K.offenE.length}</div></button>
+    ${(() => { const ab = K.offenE.filter(x => istAbbuchung(x.r)), ma = K.offenE.filter(x => !istAbbuchung(x.r));   // Lieferanten: wird abgebucht vs. müssen wir selbst überweisen
+      return `<button class="k" data-act="go" data-v="eingang" data-f="abb"><div class="kv">${fmtE(sum(ab, x => x.st.offen))}</div><div class="kl">Lieferanten: noch Abbuchung offen · ${ab.length}</div></button>
+    <button class="k" data-act="go" data-v="eingang" data-f="manuell"><div class="kv">${fmtE(sum(ma, x => x.st.offen))}</div><div class="kl">Lieferanten: noch manuelle Zahlung offen · ${ma.length}</div></button>
+    <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen gesamt · ${K.offenE.length}</div></button>`; })()}
   </section>
   ${K.probleme.length || K.bankOffen.length || K.pruefen.length ? `<section class="alerts">
     ${K.probleme.length ? `<button class="alert bad" data-act="go" data-v="abgleich">⚑ <b>${K.probleme.length}</b> Rechnung${K.probleme.length === 1 ? '' : 'en'} mit falschem Betrag (zu viel / zu wenig / doppelt)</button>` : ''}
@@ -218,9 +221,13 @@ function rDoppelt(dir) {
   }
   return M;
 }
+// Lieferantenrechnung wird abgebucht (SEPA-Lastschrift / Status „Abbuchung offen“) – sonst müssen wir selbst überweisen
+const istAbbuchung = r => r.zahlart === 'sepa' || /^abbuchung/i.test(r.status_excel || '');
 function filterR(list, f) {
   if (f === 'alle') return list;
   if (f === 'offen') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key));
+  if (f === 'abb') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && istAbbuchung(x.r));
+  if (f === 'manuell') return list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && !istAbbuchung(x.r));
   if (f === 'probleme') return list.filter(x => ['ueber', 'doppelt', 'teil'].includes(x.st.key));
   if (f === 'bezahlt') return list.filter(x => ['bezahlt', 'erledigt', 'extern', 'storno', 'verrechnet'].includes(x.st.key));
   if (f === 'pruefen') return list.filter(x => !x.r.geprueft);
@@ -307,7 +314,7 @@ function viewRechnungen(dir) {
   let list = S.rechnungen.filter(r => r.richtung === dir && r.art !== 'Mahnung' && (UI.period === 'alle' || inP(r.datum, range) || !['bezahlt', 'erledigt', 'extern', 'storno'].includes(rStatus(r).key))).map(r => ({ r, st: rStatus(r) }));
   // Filter: „Alle“, „Offen“ (alles nicht Bezahlte), dann jeder Status aus der Liste mit Anzahl, dazu überfällig/Abgleich-Probleme/ungeprüft
   const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
-  const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
+  const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(dir === 'eingang' ? [['abb', 'noch Abbuchung offen'], ['manuell', 'noch manuell zu zahlen']] : [],stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
     [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']],
     dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   const DUP = rDoppelt(dir), dupN = [...DUP.values()].filter(d => d.sicher).length, dupW = DUP.size - dupN;
@@ -348,7 +355,7 @@ function viewRechnungen(dir) {
   ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
   <div class="filters">${chips(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
-  <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)} <span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
+  <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
     const t = [['Werkstatt', s('lohn')], ['Ersatzteile', s('teile')], ['Sonstiges', s('sonstiges')], ['Altteile', s('altteile')], ['Dl.Posten', s('durchlaufend')], ['MwSt.', s('mwst')], ['davon USt. Altteile', s('ust_alt')], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()

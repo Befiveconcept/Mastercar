@@ -64,7 +64,13 @@ async function rechnungDetail(id) {
     $('#docDl', d).onclick = async e => { e.preventDefault(); try { const b = await ablageBlob(r); if (!b) return toast('Beleg nicht gefunden.'); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = r.dateiname || belegName(r, dateiEndung(r.datei)); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); } catch (er) { toast('Download fehlgeschlagen.'); } };
   }).catch(() => { });
   const again = () => { render(); rechnungDetail(id); };
+  // Noch offen? Passende, noch freie Bank-/Kassenbuchungen gleich hier vorschlagen (Name, Nummer, Betrag, Datum)
+  const zv = !r.erledigt && st.offen > 0.005 && ['offen', 'ueberfaellig', 'teil'].includes(st.key) ? zahlungVorschlaege(r, st).filter(x => x.s >= 50).slice(0, 4) : [];
+  if (zv.length) $('.sheet-body', d).insertAdjacentHTML('afterbegin', `<div class="note"><b>Passende Zahlung gefunden?</b> Diese ${isA ? 'Eingänge' : 'Abbuchungen'} sind noch keiner Rechnung zugeordnet:
+    <ul class="pays">${zv.map((x, i) => `<li><span>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'} · ${fmtD(x.p.datum)} · ${esc(x.p.gegenpartei || '')}<br><small class="muted">${esc(String(x.p.zweck || '').slice(0, 90))} · ${esc(x.why.join(', '))}</small></span><b>${fmtE(x.rest)}</b> <button class="btn sm primary" data-vz="${i}">Zuordnen</button></li>`).join('')}</ul></div>`);
   d.addEventListener('click', async e => {
+    const vz = e.target.closest('[data-vz]');
+    if (vz) { const x = zv[+vz.dataset.vz]; await zuordnen(r, x.p, x.kind, Math.min(x.rest, st.offen)); toast('Zugeordnet.'); return again(); }
     const dz = e.target.closest('[data-delz]'); if (dz) { await zuordnungLoeschen(dz.dataset.delz); return again(); }
     const zo = e.target.closest('[data-zoeffnen]');
     if (zo) { e.preventDefault(); const z = S.zuordnungen.find(x => x.id === zo.dataset.zoeffnen); if (z) { if (z.bank_id) return bankDetail(z.bank_id); if (z.sumup_id) return sumupDetail(z.sumup_id); if (z.kasse_id) return kasseDetail(z.kasse_id); } return; }
@@ -156,15 +162,20 @@ function rechnungForm(dir, r = null) {
   if (r && r.brutto < 0) ['netto', 'mwst', 'brutto'].forEach(k => { const i = $(`[name=${k}]`, d); if (i && i.value) i.value = Math.abs(parseNum(i.value)); });
 }
 
-// Für eine Rechnung eine offene Zahlung (Bank oder SumUp) aussuchen
-function zahlungPicker(r) {
-  buildIdx();
-  const st = rStatus(r), isA = r.richtung === 'ausgang';
-  const pays = [
+// Offene (noch freie) Zahlungen zu einer Rechnung, die passendsten zuerst
+function zahlungVorschlaege(r, st = rStatus(r)) {
+  const isA = r.richtung === 'ausgang';
+  return [
     ...S.bank.filter(b => (isA ? b.betrag > 0 : b.betrag < 0) && !b.art).map(b => ({ kind: 'bank', p: b, rest: bStatus(b).rest })),
     ...(isA ? S.sumup.filter(sumOk).map(s => ({ kind: 'sumup', p: { ...s, zweck: s.beschreibung }, rest: sStatus(s).rest })) : []),
     ...S.kasse.filter(k => (isA ? k.betrag > 0 : k.betrag < 0)).map(k => ({ kind: 'kasse', p: { ...k, zweck: k.text, gegenpartei: 'Kasse' }, rest: kStatus(k).rest }))
   ].filter(x => x.rest > 0.005).map(x => ({ ...x, ...score(x.p, r, x.rest, st.offen) })).sort((a, b) => b.s - a.s || b.p.datum.localeCompare(a.p.datum));
+}
+// Für eine Rechnung eine offene Zahlung (Bank oder SumUp) aussuchen
+function zahlungPicker(r) {
+  buildIdx();
+  const st = rStatus(r), isA = r.richtung === 'ausgang';
+  const pays = zahlungVorschlaege(r, st);
   const rowsHtml = q => {
     const ql = q.toLowerCase().trim(), l = ql ? pays.filter(x => [x.p.gegenpartei, x.p.zweck, fmtE(x.p.betrag), x.p.betrag, fmtD(x.p.datum)].join(' ').toLowerCase().includes(ql)) : pays;
     return l.slice(0, 40).map((x, i) => `<tr><td>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'}</td><td>${fmtD(x.p.datum)}</td><td>${esc(x.p.gegenpartei || '')}<div class="zweck small">${esc(x.p.zweck || '')}</div></td><td class="num">${fmtE(x.rest)}</td>
