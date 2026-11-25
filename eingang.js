@@ -164,15 +164,25 @@ function korbRender(auf) {
 }
 async function korbVerarbeiten() {
   const fs = KORB.splice(0); korbRender();
-  if (fs.length) await eingangDrop(fs);
+  if (!fs.length) return;
+  try { await eingangDrop(fs); }
+  catch (e) {   // nie mehr stillschweigend hängen bleiben: Fehler zeigen, Dateien zurück in den Stapel
+    console.error(e); busy(false);
+    fs.forEach(f => { if (!KORB.includes(f)) KORB.push(f); }); korbRender(true);
+    toast('Verarbeiten abgebrochen: ' + (e.message || e) + ' – die Dateien liegen wieder im Stapel.');
+  }
 }
+// Ordner-Erlaubnis abfragen, aber nicht ewig warten (die Browser-Abfrage oben an der Adresszeile wird leicht übersehen)
+const ablageKurz = art => Promise.race([ablageOrdner(true, art).catch(() => null), new Promise(r => setTimeout(() => r(null), 15000))]);
 
 async function eingangDrop(fileList) {
   const files = [...fileList];
   const tables = files.filter(isTable);
   if (tables.length) { tables.forEach(f => importAuto(f)); }
   const docs = files.filter(f => !isTable(f)); if (!docs.length) return;
-  const ablage = await ablageOrdner(true), ablageA = await ablageOrdner(true, 'ausgang'), logStart = ABLAGE_LOG.length;   // gleich beim Reinziehen fragen – nur dann darf der Browser um Erlaubnis bitten
+  busy(true, (ABLAGE || ABLAGE_A) ? 'Ordner-Zugriff … falls oben im Browser gefragt wird: „Bearbeiten zulassen“' : 'Lese Belege …');
+  // gleich beim Klick fragen – nur dann darf der Browser um Erlaubnis bitten; beide Ordner gleichzeitig, höchstens 15 s warten
+  const [ablage, ablageA] = await Promise.all([ablageKurz('eingang'), ablageKurz('ausgang')]), logStart = ABLAGE_LOG.length;
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...(await fileToBelege(f)).map(b => ({ ...b, quelle: f }))); } catch (e) { console.warn(e); } }   // quelle = Originaldatei (für „zurück in den Stapel“)
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }
