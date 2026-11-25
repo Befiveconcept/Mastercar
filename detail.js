@@ -44,7 +44,7 @@ async function rechnungDetail(id) {
             ${av.map(a => `<li data-act="avisD" data-id="${a.id}" style="cursor:pointer"><span>📨 Zahlungsavis ${esc(a.nummer || '')} · ${fmtD(a.datum)} · ${a.bank_id ? 'abgebucht' : 'Abbuchung offen'}</span><b>${a.betrag != null ? fmtE(a.betrag) : ''}</b></li>`).join('')}</ul>`; })()}
         <h4>Zahlungen</h4>
         ${st.zahlungen.length ? `<ul class="pays">${st.zahlungen.map(z => `<li><span>${z.bank_id || z.sumup_id || z.kasse_id ? `<a href="#" data-zoeffnen="${z.id}" title="Zahlung öffnen">${payLabel(z)}</a>` : payLabel(z)}${z.art === 'auto' ? ' <small class="muted">· automatisch' + (z.notiz ? ': ' + esc(z.notiz) : '') + '</small>' : z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b>${z.bank_id || z.sumup_id || z.kasse_id ? `<button class="btn sm" data-zoeffnen="${z.id}" title="Diese Zahlung öffnen">${z.bank_id ? '🏦 Bank' : z.sumup_id ? '💳 EC' : '€ Kasse'} öffnen ›</button>` : ''}<button class="icon-btn" data-delz="${z.id}" title="Zuordnung lösen">✕</button></li>`).join('')}</ul>`
-          : st.key === 'extern' ? `<p class="small">Laut Liste bezahlt${r.zahlart ? ' (' + esc(ZA[r.zahlart] || r.zahlart) + ')' : ''}, aber noch keine Buchung verknüpft.${ezv.length ? ' Passt eine davon?' : ''}</p>${ezv.length ? `<ul class="pays">${ezv.map((x, i) => `<li><span>${x.kind === 'bank' ? '🏦 Bank' : x.kind === 'kasse' ? '€ Kasse' : '💳 EC'} · ${fmtD(x.p.datum)} · ${esc(x.p.gegenpartei || '')}<br><small class="muted">${esc(String(x.p.zweck || '').slice(0, 90))} · ${esc(x.why.join(', '))}</small></span><b>${fmtE(x.rest)}</b><button class="btn sm" data-vo="${i}">Öffnen ›</button><button class="btn sm primary" data-ez="${i}">Zuordnen</button></li>`).join('')}</ul>` : ''}`
+          : st.key === 'extern' ? `<p class="small">Laut Liste bezahlt${r.zahlart ? ' (' + esc(ZA[r.zahlart] || r.zahlart) + ')' : ''}, aber noch keine Buchung verknüpft.${ezv.length ? ' Passt eine davon?' : ''}</p>${ezv.length ? `<ul class="pays">${ezv.map((x, i) => `<li><span>${x.kind === 'bank' ? '🏦 Bank' : x.kind === 'kasse' ? '€ Kasse' : '💳 EC'} · ${fmtD(x.p.datum)} · ${esc(x.p.gegenpartei || '')}<br><small class="muted">${esc(zweckKurz(x.p.zweck).slice(0, 90))} · ${esc(x.why.join(', '))}</small></span><b>${fmtE(x.rest)}</b><button class="btn sm" data-vo="${i}">Öffnen ›</button><button class="btn sm primary" data-ez="${i}">Zuordnen</button></li>`).join('')}</ul>` : ''}`
           : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
         <div class="btnrow">
           <button class="btn primary" data-a="pay">Zahlung zuordnen</button>
@@ -71,7 +71,7 @@ async function rechnungDetail(id) {
   // Noch offen? Passende, noch freie Bank-/Kassenbuchungen gleich hier vorschlagen (Name, Nummer, Betrag, Datum)
   const zv = !r.erledigt && st.offen > 0.005 && ['offen', 'ueberfaellig', 'teil'].includes(st.key) ? zahlungVorschlaege(r, st).filter(x => x.s >= 50).slice(0, 4) : [];
   if (zv.length) $('.sheet-body', d).insertAdjacentHTML('afterbegin', `<div class="note"><b>Passende Zahlung gefunden?</b> Diese ${isA ? 'Eingänge' : 'Abbuchungen'} sind noch keiner Rechnung zugeordnet:
-    <ul class="pays">${zv.map((x, i) => `<li><span>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'} · ${fmtD(x.p.datum)} · ${esc(x.p.gegenpartei || '')}<br><small class="muted">${esc(String(x.p.zweck || '').slice(0, 90))} · ${esc(x.why.join(', '))}</small></span><b>${fmtE(x.rest)}</b> <button class="btn sm primary" data-vz="${i}">Zuordnen</button></li>`).join('')}</ul></div>`);
+    <ul class="pays">${zv.map((x, i) => `<li><span>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'} · ${fmtD(x.p.datum)} · ${esc(x.p.gegenpartei || '')}<br><small class="muted">${esc(zweckKurz(x.p.zweck).slice(0, 90))} · ${esc(x.why.join(', '))}</small></span><b>${fmtE(x.rest)}</b> <button class="btn sm primary" data-vz="${i}">Zuordnen</button></li>`).join('')}</ul></div>`);
   d.addEventListener('click', async e => {
     const vz = e.target.closest('[data-vz]');
     if (vz) { const x = zv[+vz.dataset.vz]; await zuordnen(r, x.p, x.kind, Math.min(x.rest, st.offen)); toast('Zugeordnet.'); return again(); }
@@ -194,7 +194,7 @@ function zahlungPicker(r) {
     // ohne Suche: freie Zahlungen + schon belegte, die sehr gut passen (Name und Betrag) – mit Suche: alles, was passt
     const l = w.length ? pays.filter(x => w.every(t => x.such.includes(t))) : pays.filter(x => frei(x) || x.s >= 50);
     return l.slice(0, 50).map(x => { const i = pays.indexOf(x), bt = belegtTxt(x);
-      return `<tr><td>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'}</td><td>${fmtD(x.p.datum)}</td><td>${esc(x.p.gegenpartei || '')}<div class="zweck small">${esc(x.p.zweck || '')}</div>
+      return `<tr><td>${x.kind === 'bank' ? 'Bank' : x.kind === 'kasse' ? 'Kasse' : 'EC'}</td><td>${fmtD(x.p.datum)}</td><td>${esc(x.p.gegenpartei || '')}<div class="zweck small">${esc(zweckKurz(x.p.zweck))}</div>
         ${bt ? `<div class="small"><span class="badge st-warn">schon zugeordnet</span> ${esc(bt)}</div>` : x.art ? `<div class="small"><span class="badge st-info">${esc(B_ST[x.art]?.[0] || x.art)}</span></div>` : ''}</td>
         <td class="num">${fmtE(Math.abs(x.p.betrag))}${x.rest > 0.005 && x.rest < Math.abs(x.p.betrag) - 0.005 ? `<div class="small muted">frei ${fmtE(x.rest)}</div>` : ''}</td>
         <td class="small">${x.s >= 50 ? '<b class="pos">passt gut</b><br>' : ''}${esc(x.why.join(', '))}</td>
@@ -246,9 +246,9 @@ async function bankDetail(id) {
   const d = openSheet({
     title: 'Bankumsatz ' + fmtD(b.datum), wide: true, noOk: true, html: `
     <div class="det-head">${badge(st)} <b class="${inc ? 'pos' : 'neg'} big">${fmtE(b.betrag)}</b></div>
-    <dl class="dl"><dt>Name</dt><dd>${esc(b.gegenpartei || '–')}</dd><dt>IBAN</dt><dd class="mono">${esc(b.iban || '–')}</dd><dt>Verwendungszweck</dt><dd>${esc(b.zweck || '–')}</dd>${b.valuta ? `<dt>Valuta</dt><dd>${fmtD(b.valuta)}</dd>` : ''}${b.konto ? `<dt>Konto</dt><dd>${esc(b.konto)}</dd>` : ''}</dl>
+    <dl class="dl"><dt>Name</dt><dd>${esc(b.gegenpartei || '–')}</dd><dt>IBAN</dt><dd class="mono">${esc(b.iban || '–')}</dd><dt>Verwendungszweck</dt><dd>${esc(zweckKurz(b.zweck) || '–')}</dd>${b.valuta ? `<dt>Valuta</dt><dd>${fmtD(b.valuta)}</dd>` : ''}${b.konto ? `<dt>Konto</dt><dd>${esc(b.konto)}</dd>` : ''}</dl>
     <div class="form2">
-      <label class="fld"><span>Art</span><select class="inp" id="bArt"><option value="">Normale Zahlung</option>${[['sumup', 'SumUp-Auszahlung'], ['privat', 'Privat'], ['intern', 'Umbuchung (eigenes Konto)'], ['ignoriert', 'Ignorieren']].map(([k, l]) => `<option value="${k}" ${b.art === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld"><span>Art</span><select class="inp" id="bArt"><option value="">Normale Zahlung</option>${[['sumup', 'SumUp-Auszahlung'], ['privat', 'Privat'], ['intern', 'Umbuchung (eigenes Konto)'], ['vorjahr', 'Gehört zu 2025 (zählt nicht in 2026)'], ['ignoriert', 'Ignorieren']].map(([k, l]) => `<option value="${k}" ${b.art === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${!inc ? `<label class="fld"><span>Kostenart (wenn es keine Rechnung gibt)</span><select class="inp" id="bKa"><option value="">–</option>${KOSTENARTEN.map(k => `<option ${b.kostenart === k ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>` : ''}
     </div>
     <h4>Zugeordnete Rechnungen</h4>
@@ -261,20 +261,29 @@ async function bankDetail(id) {
     ${!inc && DB.aiOn && !b.kostenart && !st.zuordnungen.length ? '<button class="btn sm" data-a="kika">✨ Kostenart von der KI vorschlagen</button>' : ''}`
   });
   const again = () => { render(); bankDetail(id); };
-  // nur so viel, wie bei der Rechnung offen ist – der Rest der Buchung bleibt frei für weitere Rechnungen
-  const anteil = (r, rest) => { const o = rStatus(r).offen; return r2(o > 0.005 ? Math.min(rest, o) : rest); };
+  // Verrechnung: Rechnungen und Gutschriften können gemeinsam in einer Buchung stecken (z. B. Altteile-Gutschriften minus Rechnungen).
+  // „gleich“ = die Rechnung bewegt Geld in dieselbe Richtung wie die Buchung, „gegen“ = wird mit ihr verrechnet.
+  const sg = Math.sign(b.betrag || 1), dirR = r => r.richtung === 'eingang' ? -1 : 1;
+  const offenVon = r => { const s = rStatus(r); return s.key === 'extern' ? sollOf(r) : s.offen; };   // „laut Liste bezahlt“ ohne Buchung: voller Betrag
+  const fluss = r => r2(sg * dirR(r) * offenVon(r));   // Beitrag zur Buchung (+ = deckt die Buchung, − = wird gegengerechnet)
+  // Betrag der Zuordnung (im Vorzeichen der Rechnung): gleich → höchstens der Rest der Buchung; gegen → voller offener Betrag
+  const anteil = (r, rest) => { const o = offenVon(r);
+    if (Math.abs(o) <= 0.005) return r2(rest * sg * dirR(r));
+    return fluss(r) > 0 ? r2(Math.sign(o) * Math.min(rest, Math.abs(o))) : r2(o); };
   const pick = async r => { await zuordnen(r, b, 'bank', anteil(r, st.rest)); again(); toast('Zugeordnet.'); };
   const sel = new Map();
-  const selZeigen = () => { const bar = $('#selbar', d); if (!bar) return; const l = [...sel.values()], s = r2(l.reduce((a, r) => a + Math.max(0, rStatus(r).offen), 0));
+  const selZeigen = () => { const bar = $('#selbar', d); if (!bar) return; const l = [...sel.values()], s = r2(l.reduce((a, r) => a + fluss(r), 0)), gegen = l.filter(r => fluss(r) < 0).length;
     bar.hidden = !l.length;
-    bar.innerHTML = l.length ? `<b>${l.length}</b> ausgewählt · offen zusammen <b>${fmtE(s)}</b> · Buchung ${fmtE(st.rest)} ${Math.abs(s - st.rest) <= 0.01 ? '<span class="pos">✓ passt genau</span>' : `<span class="neg">Differenz ${fmtE(r2(st.rest - s))}</span>`} <button class="btn sm primary" data-selgo>Ausgewählte zuordnen</button>` : ''; };
+    bar.innerHTML = l.length ? `<b>${l.length}</b> ausgewählt · ${gegen ? 'verrechnet' : 'offen'} zusammen <b>${fmtE(s)}</b>${gegen ? ` <small class="muted">(${gegen} davon gegengerechnet)</small>` : ''} · Buchung ${fmtE(st.rest)} ${Math.abs(s - st.rest) <= 0.01 ? '<span class="pos">✓ passt genau</span>' : `<span class="neg">Differenz ${fmtE(r2(st.rest - s))}</span>`} <button class="btn sm primary" data-selgo>Ausgewählte zuordnen</button>` : ''; };
   d.addEventListener('change', e => { const c = e.target.closest('[data-sel]'); if (!c) return; const r = S.rechnungen.find(x => x.id === c.dataset.sel); if (c.checked && r) sel.set(r.id, r); else sel.delete(c.dataset.sel); selZeigen(); });
   $('#bArt', d).onchange = async e => { await DB.update('bank', id, { art: e.target.value || null }); again(); };
   const ka = $('#bKa', d); if (ka) ka.onchange = async e => { await DB.update('bank', id, { kostenart: e.target.value || null }); render(); toast('Gespeichert.'); };
   const rq = $('#rq', d); if (rq) rq.addEventListener('input', () => {
     const q = rq.value.toLowerCase().trim(); if (q.length < 2) return $('#rl', d).innerHTML = '';
-    const l = S.rechnungen.filter(r => r.richtung === (inc ? 'ausgang' : 'eingang') && q.split(/\s+/).every(w => textOf(r).includes(w))).slice(0, 20);
-    $('#rl', d).innerHTML = l.map(r => `<tr><td><input type="checkbox" data-sel="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="auswählen"></td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>${badge(rStatus(r))}</td><td><button class="btn sm primary" data-rid="${r.id}">Zuordnen</button></td></tr>`).join('') || '<tr><td class="empty">Nichts gefunden.</td></tr>';
+    // Ein- und Ausgangsrechnungen sowie Gutschriften – die zur Buchungsrichtung passenden zuerst
+    const l = S.rechnungen.filter(r => !DOK_ARTEN.includes(r.art) && q.split(/\s+/).every(w => textOf(r).includes(w)))
+      .sort((a, c) => (sg * dirR(c) * Math.sign(+c.brutto || 1) > 0) - (sg * dirR(a) * Math.sign(+a.brutto || 1) > 0) || (c.datum || '').localeCompare(a.datum || '')).slice(0, 30);
+    $('#rl', d).innerHTML = l.map(r => `<tr><td><input type="checkbox" data-sel="${r.id}" ${sel.has(r.id) ? 'checked' : ''} aria-label="auswählen"></td><td class="small">${r.richtung === 'ausgang' ? '↗' : '↘'} ${(+r.brutto || 0) < 0 ? 'Gutschrift' : 'Rechnung'}</td><td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="num">${fmtE(r.brutto)}</td><td>${badge(rStatus(r))}</td><td><button class="btn sm primary" data-rid="${r.id}">Zuordnen</button></td></tr>`).join('') || '<tr><td class="empty">Nichts gefunden.</td></tr>';
   });
   d.addEventListener('click', async e => {
     const t = e.target;
@@ -283,8 +292,10 @@ async function bankDetail(id) {
     if (t.closest('[data-v]')) { const x = vs[+t.closest('[data-v]').dataset.v]; return pick(x.r); }
     if (t.closest('[data-rid]')) { const r = S.rechnungen.find(x => x.id === t.closest('[data-rid]').dataset.rid); return pick(r); }
     if (t.closest('[data-selgo]')) {
-      let rest = st.rest; const l = [...sel.values()].sort((a, c) => (a.datum || '').localeCompare(c.datum || ''));
-      for (const r of l) { if (rest <= 0.005) break; const a = anteil(r, rest); await zuordnen(r, b, 'bank', a, l.length > 1 ? 'Sammelzahlung (' + l.length + ' Rechnungen)' : null); rest = r2(rest - a); }
+      // erst die gegengerechneten (Gutschriften bzw. Gegenrechnungen) – sie erhöhen, was für die übrigen übrig ist
+      let rest = st.rest; const l = [...sel.values()].sort((a, c) => (fluss(a) < 0 ? 0 : 1) - (fluss(c) < 0 ? 0 : 1) || (a.datum || '').localeCompare(c.datum || ''));
+      const gegen = l.some(r => fluss(r) < 0), notiz = l.length > 1 ? (gegen ? 'Verrechnung (' + l.length + ' Belege)' : 'Sammelzahlung (' + l.length + ' Rechnungen)') : null;
+      for (const r of l) { const f = fluss(r); if (f > 0 && rest <= 0.005) break; const a = anteil(r, rest); await zuordnen(r, b, 'bank', a, notiz); rest = r2(rest - sg * dirR(r) * a); }
       again(); return toast(l.length + ' Rechnungen zugeordnet.');
     }
     if (t.closest('[data-a=kika]')) {

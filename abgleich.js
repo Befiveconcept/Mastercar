@@ -3,7 +3,7 @@
 const ZIEL_TAGE = () => +(S.einstellungen.zahlungsziel ?? 10);   // Kundenrechnungen: ab 10 Tagen nach Rechnungsdatum überfällig
 let IDX = { zByR: new Map(), zByB: new Map(), zByS: new Map(), zByK: new Map() };
 function buildIdx() {
-  const m = () => new Map(); IDX = { zByR: m(), zByB: m(), zByS: m(), zByK: m(), gsByR: m() };
+  const m = () => new Map(); IDX = { zByR: m(), zByB: m(), zByS: m(), zByK: m(), gsByR: m(), rById: new Map(S.rechnungen.map(r => [r.id, r])) };
   const push = (map, k, z) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(z); };
   S.zuordnungen.forEach(z => { push(IDX.zByR, z.rechnung_id, z); push(IDX.zByB, z.bank_id, z); push(IDX.zByS, z.sumup_id, z); push(IDX.zByK, z.kasse_id, z); });
   S.rechnungen.forEach(r => { if (r.bezug_id && r.bezug_id !== r.id) push(IDX.gsByR, r.bezug_id, r); });   // Gutschriften/Korrekturen je Rechnung
@@ -33,7 +33,7 @@ function bankOhneRechnung() {
     if (m.has(b.id) || !frei(b)) continue;
     const t = bZweck(b);
     let k = null;
-    if (b.betrag > 0 && /\bR\s?25\s?[-\/]\s?\d{3,4}\b|\b(re|rg|rechnung|renr)\.?[^\d]{0,12}25[-\/]\d{3,4}\b|\bR25-?\d{3,4}|\bre\.?\s*25-\d{4}\b|\/25-\d{4}\b/i.test(t)) k = 'vorjahr';
+    if (b.betrag > 0 && /\bR\s?25\s?[-\/]\s?\d{3,4}\b|\b(re|rg|rechnung|renr)\.?[^\d]{0,12}25[-\/]\d{3,4}\b|\bR25-?\d{3,4}|\bre\.?\s*25-\d{4}\b|\/25-\d{4}\b|\b(re|rg|rechnung|renr)\.?[^\d]{0,12}(PR)?25\d{3}\b/i.test(t)) k = 'vorjahr';   // auch „Rechnung 25006“ (PR-Nummernkreis 2025)
     else if (/darlehen|tilgung/i.test(t)) k = 'darlehen';
     else if (b.betrag > 0 && /steuerverwaltung|finanzamt|bundeskasse/i.test(t)) k = 'steuer';
     else if (b.betrag > 0 && /erstattung|erstattet|r(ü|ue|u)ckzahlung|(ü|ue|u)berzahlung|doppelzahl|zu\s?viel|refund|zur(ü|ue|u)ck/i.test(t)) k = 'erstattung';
@@ -172,12 +172,28 @@ async function zahlartNachziehen() {
   for (let i = 0; i < l.length; i += 20) await Promise.all(l.slice(i, i + 20).map(r => DB.update('rechnungen', r.id, { zahlart: zahlartAusZahlung(r) })));
   return l.length;
 }
+// Verwendungszweck nur für die Anzeige kürzen: SEPA-Kürzel (EREF+, KREF+, MREF+, CRED+, SVWZ+, ABWA+ …) und ihre Kennungen weglassen,
+// übrig bleibt der eigentliche Text (z. B. „R26-1794“). Gespeichert und abgeglichen wird weiter mit dem vollen Text.
+const SEPA_TAG = /(EREF|KREF|MREF|CRED|SVWZ|ABWA|ABWE|IBAN|BIC|PURP|DEBT|COAM|OAMT|SQTP|BREF|RREF)\+/g;
+function zweckKurz(s) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim(); if (!SEPA_TAG.test(t)) { SEPA_TAG.lastIndex = 0; return t; } SEPA_TAG.lastIndex = 0;
+  const teile = {}; let m, letzter = null, pos = 0; const vor = [];
+  while ((m = SEPA_TAG.exec(t))) { const davor = t.slice(pos, m.index); if (letzter) teile[letzter] = (teile[letzter] || '') + davor; else vor.push(davor); letzter = m[1]; pos = m.index + m[0].length; }
+  if (letzter) teile[letzter] = (teile[letzter] || '') + t.slice(pos);
+  const svwz = (teile.SVWZ || '').trim(), rest = vor.join(' ').trim();
+  const out = svwz || rest || (teile.ABWA || '').trim();
+  return out.replace(/\bNOTPROVIDED\b/g, '').replace(/\s*SecureGo\s*plus\s*$/i, '').replace(/\s+/g, ' ').trim() || t;
+}
+const zRichtung = z => { const r = (IDX.rById && IDX.rById.get(z.rechnung_id)) || S.rechnungen.find(x => x.id === z.rechnung_id); return r && r.richtung === 'eingang' ? -1 : 1; };
+const zFluss = z => zRichtung(z) * (+z.betrag || 0);   // + = Geld kommt rein, − = Geld geht raus
 const B_ST = {
   offen: ['Nicht zugeordnet', 'st-open'], zugeordnet: ['Zugeordnet', 'st-ok'], teilweise: ['Teilweise zugeordnet', 'st-warn'], sumup: ['SumUp-Auszahlung', 'st-info'],
-  privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
+  privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], vorjahr: ['Gehört zu 2025', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
 };
 function bStatus(b) {
-  const zs = IDX.zByB.get(b.id) || [], used = sum(zs, z => z.betrag), rest = r2(Math.abs(b.betrag) - used);
+  // Verrechnung: eine Buchung kann Rechnungen UND Gutschriften abdecken (z. B. Altteile-Gutschriften minus Rechnungen).
+  // Geldfluss je Zuordnung: Ausgangsrechnung + / Eingangsrechnung − (Gutschrift mit negativem Betrag dreht das Vorzeichen)
+  const zs = IDX.zByB.get(b.id) || [], used = r2(Math.sign(b.betrag || 1) * sum(zs, z => zFluss(z))), rest = r2(Math.abs(b.betrag) - used);
   let key;
   const auto = !zs.length && !b.art && IDX.bArt && IDX.bArt.get(b.id);
   if (b.art && B_ST[b.art] && !zs.length) key = b.art;

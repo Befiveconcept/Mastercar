@@ -167,7 +167,7 @@ function ustDaten(jahr, ist) {
     if (Math.abs(v) > 0.005) put(m, 'vst', v, { t: 'r', id: r.id });
     else if (RC_RX.test(r.partner || '') && Math.abs(+r.brutto || 0) > 0.005 && !(+r.durchlaufend)) put(m, 'rc', nettoAus(r), { t: 'r', id: r.id });
   });
-  if (UI.guvOhne) S.bank.forEach(b => { if (inJ(b.datum) && b.betrag < 0 && istFinanzamt(b) && !(IDX.zByB.get(b.id) || []).length) put(mon(b.datum), 'fa', -b.betrag, { t: 'b', id: b.id }); });
+  if (UI.guvOhne) S.bank.forEach(b => { if (inJ(b.datum) && b.betrag < 0 && !b.art && istFinanzamt(b) && !(IDX.zByB.get(b.id) || []).length) put(mon(b.datum), 'fa', -b.betrag, { t: 'b', id: b.id }); });
   return M;
 }
 function viewUstva() {

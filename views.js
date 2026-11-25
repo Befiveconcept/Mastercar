@@ -29,7 +29,7 @@ const ZA = { bank: 'Überweisung', sepa: 'SEPA-Lastschrift', ec: 'EC / SumUp', b
 function kennzahlen(range) {
   const aus = S.rechnungen.filter(r => r.richtung === 'ausgang' && inP(r.datum, range));
   const ein = S.rechnungen.filter(r => r.richtung === 'eingang' && inP(r.datum, range));
-  const bankKosten = S.bank.filter(b => b.betrag < 0 && inP(b.datum, range) && !['privat', 'intern', 'ignoriert'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length);
+  const bankKosten = S.bank.filter(b => b.betrag < 0 && inP(b.datum, range) && !['privat', 'intern', 'ignoriert', 'vorjahr'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length);
   // netto wie in der Excel-Mappe (ohne durchlaufende Posten); Gutschriften mindern die Kosten
   const einnahmen = sum(aus, nettoA), einNetto = einnahmen, einBrutto = sum(aus, r => r.brutto);
   const ausgaben = sum(ein, nettoE), bankOhne = sum(bankKosten, b => -b.betrag);
@@ -447,7 +447,7 @@ function viewBank() {
   const q = (UI.q.bank || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => [x.b.gegenpartei, x.b.zweck, x.b.kostenart, x.b.iban, fmtE(x.b.betrag), x.b.betrag, fmtD(x.b.datum)].join(' ').toLowerCase().includes(w)));
   list.sort((a, b) => b.b.datum.localeCompare(a.b.datum));
   const bRe = x => x.st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean).map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(' ') || x.b.kostenart || '';
-  const cols = [colDat('datum', 'Datum', x => x.b.datum), colTxt('name', 'Name', x => x.b.gegenpartei), colTxt('zweck', 'Verwendungszweck', x => x.b.zweck),
+  const cols = [colDat('datum', 'Datum', x => x.b.datum), colTxt('name', 'Name', x => x.b.gegenpartei), colTxt('zweck', 'Verwendungszweck', x => zweckKurz(x.b.zweck)),
     colNum('betrag', 'Betrag', x => x.b.betrag), colTxt('re', 'Kostenart / Rechnung', bRe), { k: 'st', l: 'Status', v: x => x.st.label, sel: true }];
   const base = list; list = colApply('bank', list, cols);
   const lim = UI.more.bank || 300;
@@ -458,7 +458,7 @@ function viewBank() {
   <div class="sumline">${list.length} Umsätze · Eingänge ${fmtE(sum(list.filter(x => x.b.betrag > 0), x => x.b.betrag))} · Ausgänge ${fmtE(sum(list.filter(x => x.b.betrag < 0), x => x.b.betrag))}${colReset('bank')}</div>
   <div class="tw"><table class="tb click">${colHead('bank', cols, base)}<tbody>
   ${list.slice(0, lim).map(({ b, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean);
-    return `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num ${b.betrag < 0 ? 'neg' : 'pos'}">${fmtE(b.betrag)}</td>
+    return `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num ${b.betrag < 0 ? 'neg' : 'pos'}">${fmtE(b.betrag)}</td>
     <td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ') : esc(b.kostenart || '')}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Keine Bankumsätze für diesen Filter.</td></tr>'}
   </tbody></table></div>${moreBtn('bank', list.length, lim)}`;
 }
@@ -525,15 +525,15 @@ function viewAbgleich() {
   const warten = bankAlle.length - bankOffen.length + sumAlle.length - sumOffen.length;
   const nextNr = Object.entries(stand.max).sort().slice(-1).map(([y, n]) => `R${y}-${String(n + 1).padStart(4, '0')}`)[0];
   const ueberf = grp('ueberfaellig').filter(x => x.r.richtung === 'ausgang').sort((a, b) => (a.r.datum || '').localeCompare(b.r.datum || ''));
-  const blCols = [colDat('datum', 'Datum', b => b.datum), colTxt('name', 'Name', b => b.gegenpartei), colTxt('zweck', 'Verwendungszweck', b => b.zweck), colNum('betrag', 'Betrag', b => b.betrag)];
+  const blCols = [colDat('datum', 'Datum', b => b.datum), colTxt('name', 'Name', b => b.gegenpartei), colTxt('zweck', 'Verwendungszweck', b => zweckKurz(b.zweck)), colNum('betrag', 'Betrag', b => b.betrag)];
   const bl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, blCols);
-    return `<div class="tw"><table class="tb click">${colHead(key, blCols, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „Bank“.</p>` : ''}`; };
+    return `<div class="tw"><table class="tb click">${colHead(key, blCols, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „Bank“.</p>` : ''}`; };
   const suCols = [colDat('datum', 'Datum', s => s.datum), colTxt('beschr', 'Beschreibung', s => s.beschreibung), colNum('betrag', 'Betrag', s => s.betrag)];
   const sl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, suCols);
     return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 300).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „SumUp“.</p>` : ''}`; };
   const bankAuto = S.bank.filter(b => bStatus(b).key === 'auto').sort((a, b) => b.datum.localeCompare(a.datum));
   const blA = (l0, key) => { const c = [colTxt('art', 'Erkannt als', b => bStatus(b).label), ...blCols], l = colApply(key, l0, c);
-    return `<div class="tw"><table class="tb click">${colHead(key, c, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${badge(bStatus(b))}</td><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck">${esc(b.zweck || '')}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('')}</tbody></table></div>`; };
+    return `<div class="tw"><table class="tb click">${colHead(key, c, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${badge(bStatus(b))}</td><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('')}</tbody></table></div>`; };
   const ek = all.filter(x => x.st.erklaert), ohneBeleg = bankAusOffen.filter(b => !b.kostenart);
   const ekCols = [COL.nr, colTxt('partner', 'Partner', x => x.r.partner), COL.datum, colNum('brutto', 'Brutto', x => x.r.brutto), colTxt('grund', 'Begründung', x => x.st.hint[0]), colTxt('notiz', 'Notiz', x => x.r.notiz)];
   const ekTab = () => { const l = colApply('abgE', ek, ekCols); return `<div class="tw"><table class="tb click">${colHead('abgE', ekCols, ek)}<tbody>${l.map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}"><td class="mono">${esc(r.nummer || '–')}</td><td>${esc(r.partner || '')}</td><td>${fmtD(r.datum)}</td><td class="num">${fmtE(r.brutto)}</td><td class="small">${esc(st.hint[0])}</td><td class="small zweck">${esc(r.notiz || '')}</td></tr>`).join('')}</tbody></table></div>`; };

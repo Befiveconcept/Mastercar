@@ -118,7 +118,7 @@ function aiSnapshot(q) {
   buildIdx();
   const R = S.rechnungen.map(r => ({ r, st: rStatus(r) }));
   const yrs = {}; R.forEach(({ r }) => { const y = (r.datum || '????').slice(0, 4); const o = yrs[y] = yrs[y] || { ein: 0, aus: 0, n: 0, ka: {} }; if (r.richtung === 'ausgang') { o.ein += +r.brutto || 0; o.n++; } else { o.aus += +r.brutto || 0; const k = r.kostenart || 'ohne'; o.ka[k] = (o.ka[k] || 0) + (+r.brutto || 0); } });
-  S.bank.filter(b => b.betrag < 0 && !['privat', 'intern', 'ignoriert'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length).forEach(b => { const y = b.datum.slice(0, 4); const o = yrs[y] = yrs[y] || { ein: 0, aus: 0, n: 0, ka: {} }; o.aus -= b.betrag; const k = (b.kostenart || 'ohne') + ' (Bank ohne Beleg)'; o.ka[k] = (o.ka[k] || 0) - b.betrag; });
+  S.bank.filter(b => b.betrag < 0 && !['privat', 'intern', 'ignoriert', 'vorjahr'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length).forEach(b => { const y = b.datum.slice(0, 4); const o = yrs[y] = yrs[y] || { ein: 0, aus: 0, n: 0, ka: {} }; o.aus -= b.betrag; const k = (b.kostenart || 'ohne') + ' (Bank ohne Beleg)'; o.ka[k] = (o.ka[k] || 0) - b.betrag; });
   const mon = {}; R.forEach(({ r }) => { const k = monthKey(r.datum); if (!k) return; const o = mon[k] = mon[k] || [0, 0]; o[r.richtung === 'ausgang' ? 0 : 1] += +r.brutto || 0; });
   const rl = ({ r, st }) => [r.id, r.richtung === 'ausgang' ? 'A' : 'E', r.nummer || '', r.datum || '', faelligAm(r) || '', r.partner || '', r.kennzeichen || '', r.kostenart || '', r2(r.brutto), r2(st.bezahlt), st.label, ZA[r.zahlart] || '', (r.beschreibung || '').slice(0, 60)].join('|');
   const bl = b => [b.id, b.datum, r2(b.betrag), b.gegenpartei || '', (b.zweck || '').slice(0, 90), b.kostenart || '', bStatus(b).label].join('|');
