@@ -1,6 +1,6 @@
 /* Mastercar Finanzen · Abgleich: Rechnungen ↔ Bank ↔ SumUp
    Status je Rechnung: offen, überfällig, bezahlt, zu wenig (teilbezahlt), zu viel (überzahlt), doppelt bezahlt, erledigt */
-const ZIEL_TAGE = () => +(S.einstellungen.zahlungsziel ?? 14);
+const ZIEL_TAGE = () => +(S.einstellungen.zahlungsziel ?? 10);   // Kundenrechnungen: ab 10 Tagen nach Rechnungsdatum überfällig
 let IDX = { zByR: new Map(), zByB: new Map(), zByS: new Map(), zByK: new Map() };
 function buildIdx() {
   const m = () => new Map(); IDX = { zByR: m(), zByB: m(), zByS: m(), zByK: m(), gsByR: m() };
@@ -89,7 +89,11 @@ const R_ST = {
   ueber: ['Zu viel bezahlt', 'st-warn'], doppelt: ['Doppelt bezahlt', 'st-bad'], erledigt: ['Erledigt', 'st-ok'], pruefen: ['KI – prüfen', 'st-ai'],
   extern: ['Bezahlt (laut Liste)', 'st-ok'], storno: ['Storniert', 'st-info']
 };
-function faelligAm(r) { return r.faellig || (r.datum ? addDays(r.datum, ZIEL_TAGE()) : null); }
+// Kundenrechnungen: immer Rechnungsdatum + Zahlungsziel (Standard 10 Tage); Lieferanten: Fälligkeit laut Rechnung, sonst 14 Tage
+function faelligAm(r) {
+  if (!r.datum) return r.faellig || null;
+  return r.richtung === 'ausgang' ? addDays(r.datum, ZIEL_TAGE()) : (r.faellig || addDays(r.datum, 14));
+}
 // Status genau wie in der Excel-Mappe (Spalte „Erledigt?“ bzw. „Bezahlt?“)
 const ST_LISTE = {
   eingang: ['Offen', 'Abbuchung offen', 'Mahnung', '2. Mahnung', '3. Mahnung', 'Beleg fehlt aber bez.', 'Bezahlt'],

@@ -338,7 +338,9 @@ function viewRechnungen(dir) {
   list = UI.filt[view] === 'dup' ? list.filter(x => DUP.has(x.r.id)) : filterR(list, UI.filt[view]);
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
   // Standard-Sortierung: Firmenname (A–Z), dann Datum (ältestes oben), dann Nummer – ein Klick auf eine Spalte sortiert anders
-  list.sort((a, b) => String(a.r.partner || '').trim().localeCompare(String(b.r.partner || '').trim(), 'de', { sensitivity: 'base' })
+  // Rechnungsausgang: neueste oben (Datum, dann Nummer absteigend)
+  if (dir === 'ausgang') list.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '') || String(b.r.nummer || '').localeCompare(String(a.r.nummer || ''), 'de', { numeric: true }));
+  else list.sort((a, b) => String(a.r.partner || '').trim().localeCompare(String(b.r.partner || '').trim(), 'de', { sensitivity: 'base' })
     || (a.r.datum || '').localeCompare(b.r.datum || '') || String(a.r.nummer || '').localeCompare(String(b.r.nummer || ''), 'de', { numeric: true }));
   const isA = dir === 'ausgang';
   const cols = isA ? [COL.nr, COL.datum, colTxt('kunde', 'Kunde', x => x.r.partner)]
@@ -529,7 +531,7 @@ function viewEinst() {
   <div class="toolbar"><h1>Einstellungen</h1></div>
   <div class="grid2">
   <section class="card"><h3>Allgemein</h3>
-    <label class="fld"><span>Zahlungsziel für Kundenrechnungen ohne Fälligkeitsdatum (Tage)</span><input class="inp" type="number" min="0" max="120" value="${ZIEL_TAGE()}" data-chg="ziel"></label>
+    <label class="fld"><span>Kundenrechnungen sind überfällig ab … Tagen nach Rechnungsdatum</span><input class="inp" type="number" min="0" max="120" value="${ZIEL_TAGE()}" data-chg="ziel"></label>
     <p class="small muted">Danach gilt eine Rechnung als überfällig.</p>
     <p class="small">Verbindung: ${DB.cloud ? '● Supabase (online, alle Geräte)' : '○ Demo-Modus – Daten nur in diesem Browser'} · KI: ${DB.aiOn ? 'an' : 'aus'}${S.user ? ' · angemeldet als ' + esc(S.user.email) : ''}</p>
     ${DB.cloud ? '<button class="btn" data-act="pw">Passwort ändern</button> <button class="btn" data-act="logout">Abmelden</button>' : '<button class="btn" data-act="demo">Demo-Daten laden</button> <button class="btn danger" data-act="resetDemo">Demo-Daten löschen</button>'}
