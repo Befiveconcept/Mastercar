@@ -225,6 +225,7 @@ Object.assign(A, {
   },
   korbGo: () => korbVerarbeiten(),
   offeneListe: () => offeneListe(),
+  filtLeer: d => { UI.filt[d.v] = 'alle'; UI.more[d.v] = 0; render(); },
   offeneZeigen: () => { UI.filt.ausgang = 'offen'; UI.cs.ausgang = { ...(UI.cs.ausgang || {}), k: 'datum', d: 'asc' }; UI.more.ausgang = 0; render(); },
   // Ablage
   ablGo: d => { UI.abl = d.p || ''; UI.q.ablage = ''; render(); window.scrollTo(0, 0); },
@@ -282,6 +283,8 @@ Object.assign(A, {
   resetDemo: () => { if (confirm('Alle Demo-Daten in diesem Browser löschen?')) { DB.resetLocal(); render(); } },
 });
 document.addEventListener('click', e => {
+  // Mehrfach-Filter: Klick daneben schließt die Liste
+  if (!e.target.closest('.msel')) { $$('details.msel[open]').forEach(d => d.open = false); UI.mselAuf = {}; }
   const el = e.target.closest('[data-act]'); if (!el) return;
   if (e.target.closest('select, input, textarea') && el.tagName === 'TR') return;   // Auswahlfeld in der Zeile (z. B. Status) öffnet nicht die Rechnung
   // In Fenstern nur Zeilen-Klicks (Rechnung/Bank/SumUp öffnen) global behandeln
@@ -291,6 +294,11 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const c = e.target.dataset && e.target.dataset.chg; if (!c) return;
   if (c === 'period') { UI.period = e.target.value; render(); }
+  if (c === 'filtM') {   // Mehrfach-Filter: Häkchen setzen/entfernen; „Alle“ hebt alles auf. Liste bleibt offen.
+    const v = e.target.dataset.v, k = e.target.dataset.k; let sel = filtListe(v);
+    if (k === 'alle') sel = []; else sel = e.target.checked ? [...new Set(sel.concat(k))] : sel.filter(x => x !== k);
+    UI.filt[v] = sel.length ? sel : 'alle'; UI.more[v] = 0; UI.mselAuf = { ...(UI.mselAuf || {}), [v]: true }; render();
+  }
   if (c === 'filt') { const v = e.target.dataset.v; UI.filt[v] = e.target.value; UI.more[v] = 0; render(); }
   if (c === 'theme') themeSetzen(e.target.checked ? 'light' : 'dark');
   if (c === 'colF') { const d = e.target.dataset, st = UI.cs[d.v] = UI.cs[d.v] || {}; st.f = st.f || {}; st.f[d.k] = e.target.value; UI.more[d.v] = 0; render(); }
@@ -317,7 +325,8 @@ let qT; document.addEventListener('input', e => { const v = e.target.dataset && 
 // Dateien irgendwo ins Fenster ziehen
 // Problemseite: Rubrik auf-/zuklappen merken; Inhalt wird erst beim Aufklappen gezeichnet
 document.addEventListener('toggle', e => {
-  const d = e.target; if (!d.matches || !d.matches('details.abg')) return;
+  const d = e.target;
+  if (d.matches && d.matches('details.msel')) { UI.mselAuf = { ...(UI.mselAuf || {}), [d.dataset.msel]: d.open }; return; } if (!d.matches || !d.matches('details.abg')) return;
   UI.abgOpen = UI.abgOpen || {}; UI.abgOpen[d.dataset.abg] = d.open;
   if (d.open && !d.querySelector('.tw, .empty')) { const y = window.scrollY; render(); window.scrollTo(0, y); }
 }, true);

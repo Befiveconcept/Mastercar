@@ -250,6 +250,16 @@ function offeneListe() {
       toast('Tabelle kopiert – jetzt in die Mail einfügen.'); return false;
     } });
 }
+// Mehrfach-Filter: aufklappbare Liste mit Häkchen; mehrere Themen = alles, was zu einem davon passt
+const filtListe = view => [].concat(UI.filt[view] || 'alle').filter(k => k && k !== 'alle');
+function filtMulti(view, opts) {
+  const sel = filtListe(view), lab = k => String((opts.find(o => o[0] === k) || [k, k])[1]).replace(/<[^>]+>/g, '');
+  const titel = !sel.length ? 'Alle' : sel.length <= 2 ? sel.map(lab).join(' + ') : `${lab(sel[0])} + ${sel.length - 1} weitere`;
+  UI.mselAuf = UI.mselAuf || {};
+  return `<details class="msel" data-msel="${view}" ${UI.mselAuf[view] ? 'open' : ''}><summary class="inp">Anzeigen: <b>${esc(titel)}</b> ▾</summary><div class="msel-pop">
+    ${opts.map(([k, l]) => `<label class="msel-o"><input type="checkbox" data-chg="filtM" data-v="${view}" data-k="${esc(k)}" ${k === 'alle' ? (!sel.length ? 'checked' : '') : sel.includes(k) ? 'checked' : ''}> ${esc(String(l).replace(/<[^>]+>/g, ''))}</label>`).join('')}
+    ${sel.length ? `<button class="btn sm" data-act="filtLeer" data-v="${view}">Alle Filter aus</button>` : ''}</div></details>`;
+}
 // Filter als Auswahlliste statt vieler Knöpfe
 function filtSel(view, opts) {
   const cur = UI.filt[view], hat = opts.some(([k]) => k === cur);
@@ -336,7 +346,8 @@ function viewRechnungen(dir) {
     dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   const DUP = rDoppelt(dir), dupN = [...DUP.values()].filter(d => d.sicher).length, dupW = DUP.size - dupN;
   if (DUP.size) chipOpts.push(['dup', '⚠ Doppelt? · ' + DUP.size]);
-  list = UI.filt[view] === 'dup' ? list.filter(x => DUP.has(x.r.id)) : filterR(list, UI.filt[view]);
+  const fsel = filtListe(view);
+  if (fsel.length) { const treffer = new Set(); fsel.forEach(f => (f === 'dup' ? list.filter(x => DUP.has(x.r.id)) : filterR(list, f)).forEach(x => treffer.add(x))); list = list.filter(x => treffer.has(x)); }
   const q = (UI.q[view] || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => textOf(x.r).includes(w)));
   // Standard-Sortierung: Firmenname (A–Z), dann Datum (ältestes oben), dann Nummer – ein Klick auf eine Spalte sortiert anders
   // Rechnungsausgang: neueste oben (Datum, dann Nummer absteigend)
@@ -371,7 +382,7 @@ function viewRechnungen(dir) {
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
   ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
-  <div class="filters">${filtSel(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
+  <div class="filters">${filtMulti(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
@@ -393,7 +404,7 @@ function viewRechnungen(dir) {
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
     <td class="verk ${(() => { const q = zahlQuelle(r); return /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
-    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
+    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${fsel.length || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 
@@ -534,7 +545,9 @@ const dokOrdnerName = (n, max = 60) => String(n || '').trim().replace(/ä/g, 'ae
   .normalize('NFKD').replace(/[^\w .()&+,-]+/g, '_').replace(/\s+/g, ' ').slice(-max).trim();
 (() => { const s = document.createElement('style'); s.textContent = `.abl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0 16px}
 .abl-o{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);color:inherit;text-align:left;cursor:pointer;font:inherit}
-.abl-o:hover{border-color:var(--y)}.sum-klick{display:flex;flex-direction:column;align-items:flex-start;background:none;border:1px solid var(--y);border-radius:10px;padding:4px 10px;color:inherit;font:inherit;cursor:pointer}.sum-klick:hover{background:var(--y-soft)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
+.abl-o:hover{border-color:var(--y)}.msel{position:relative}.msel>summary{list-style:none;cursor:pointer;white-space:nowrap}.msel>summary::-webkit-details-marker{display:none}
+.msel-pop{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:260px;max-height:60vh;overflow:auto;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:2px}
+.msel-o{display:flex;gap:8px;align-items:center;padding:5px 6px;border-radius:8px;cursor:pointer;white-space:nowrap}.msel-o:hover{background:var(--y-soft)}.sum-klick{display:flex;flex-direction:column;align-items:flex-start;background:none;border:1px solid var(--y);border-radius:10px;padding:4px 10px;color:inherit;font:inherit;cursor:pointer}.sum-klick:hover{background:var(--y-soft)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
 const dokPrefix = pfad => 'ablage' + (pfad ? '/' + pfad : '');
 const dokName = n => String(n || '').replace(/^\d{10,}_/, '');   // Zeitstempel vorne ausblenden
 async function dokLaden(pfad, neu) {
