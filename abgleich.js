@@ -13,7 +13,7 @@ function buildIdx() {
 /* ---------- Bankbuchungen, zu denen es keine Rechnung gibt (automatisch erkannt, nichts wird gespeichert) ----------
    Gilt nur für Buchungen ohne Zuordnung und ohne von Hand gesetzte Art. */
 const B_AUTO = {
-  vorjahr: ['Zahlung zu Rechnung aus 2025', 'st-info'], rueck: ['Rücklastschrift', 'st-info'], erstattung: ['Erstattung (ohne Rechnung)', 'st-info'],
+  vorjahr: ['Gehört zu 2025', 'st-info'], rueck: ['Rücklastschrift', 'st-info'], erstattung: ['Erstattung (ohne Rechnung)', 'st-info'],
   steuer: ['Steuer-Erstattung', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], gebuehr: ['Bankgebühr', 'st-info'], rueckzahlung: ['Rückzahlung an Kunden', 'st-info'],
 };
 const RUECK_RX = /retoure|r(ü|ue|u)cklastschrift|return\s*\/\s*refund/i;
@@ -214,7 +214,7 @@ function sStatus(s) {
 
 function kStatus(k) {
   const zs = IDX.zByK.get(k.id) || [], used = sum(zs, z => z.betrag), rest = r2(Math.abs(k.betrag) - used);
-  if (!zs.length && k.betrag > 0 && /^\s*R\s?25\s?[-\/]/i.test(k.text || '')) return { key: 'intern', label: 'Zahlung zu Rechnung aus 2025', cls: 'st-info', rest: 0, zuordnungen: zs };   // Vorjahr – nicht Teil dieser Software
+  if (!zs.length && k.betrag > 0 && /^\s*R\s?25\s?[-\/]/i.test(k.text || '')) return { key: 'intern', label: 'Gehört zu 2025', cls: 'st-info', rest: 0, zuordnungen: zs };   // Vorjahr – nicht Teil dieser Software
   if (!zs.length && /umbuchung|privat|ignor/i.test(k.kostenart || '')) return { key: 'intern', label: /umbuchung/i.test(k.kostenart) ? 'Umbuchung Kasse → Bank' : k.kostenart, cls: 'st-info', rest: 0, zuordnungen: zs };   // per Regel eingeordnet
   if (!zs.length) return { key: 'offen', label: k.betrag < 0 && k.kostenart ? 'Kosten ohne Beleg' : 'Ohne Beleg', cls: k.betrag < 0 && k.kostenart ? 'st-info' : 'st-open', rest, zuordnungen: zs };
   return rest <= 0.01 ? { key: 'zugeordnet', label: 'Zugeordnet', cls: 'st-ok', rest: 0, zuordnungen: zs } : { key: 'teilweise', label: 'Teilweise', cls: 'st-warn', rest, zuordnungen: zs };
