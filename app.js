@@ -225,6 +225,8 @@ Object.assign(A, {
   },
   korbGo: () => korbVerarbeiten(),
   offeneListe: () => offeneListe(),
+  darlNeu: () => darlNeu(),
+  darlWeg: async d => { const l = darlAnfang().slice(), a = l[+d.i]; if (!a || !confirm(`Darlehen „${a.geber}“ (${fmtE(a.betrag)}) aus der Liste entfernen?`)) return; l.splice(+d.i, 1); await DB.setSetting('darlehen_anfang', l); render(); },
   filtLeer: d => { UI.filt[d.v] = 'alle'; UI.more[d.v] = 0; render(); },
   offeneZeigen: () => { UI.filt.ausgang = 'offen'; UI.cs.ausgang = { ...(UI.cs.ausgang || {}), k: 'datum', d: 'asc' }; UI.more.ausgang = 0; render(); },
   // Ablage

@@ -9,7 +9,48 @@ const AUSW = [
   ['op', 'Offene Posten', 'Forderungen und Verbindlichkeiten nach Alter'],
   ['liq', 'Liquidität', 'Geldbewegungen je Monat und fällige Zahlungen'],
   ['partner', 'Kunden & Lieferanten', 'Umsatz je Kunde, Kosten je Lieferant'],
+  ['darl', 'Darlehen', 'Aufgenommene Darlehen, Tilgungen und was noch offen ist'],
 ];
+
+/* ---------- Darlehen ----------
+   Darlehen sind weder Erlös noch Kosten (Bilanz: Verbindlichkeiten). Hier: Stand je Darlehensgeber.
+   Anfangsstände aus dem Vorjahr stehen in den Einstellungen („darlehen_anfang“), die Bewegungen kommen aus der Bank
+   (Art „Darlehen / Tilgung“ oder automatisch erkannt). */
+const darlAnfang = () => Array.isArray(S.einstellungen.darlehen_anfang) ? S.einstellungen.darlehen_anfang : [];
+function darlGruppen() {
+  const G = [], tk = s => nameTokens(s).filter(w => w.length >= 5);
+  const gruppe = name => { const t = tk(name); let g = G.find(x => t.some(w => x.tok.has(w))); if (!g) { g = { name, tok: new Set(), anfang: [], bew: [] }; G.push(g); } t.forEach(w => g.tok.add(w)); return g; };
+  darlAnfang().forEach((a, i) => gruppe(a.geber).anfang.push({ ...a, i }));
+  S.bank.filter(b => b.art === 'darlehen' || (!b.art && !(IDX.zByB.get(b.id) || []).length && IDX.bArt && IDX.bArt.get(b.id) === 'darlehen'))
+    .sort((a, b) => a.datum.localeCompare(b.datum)).forEach(b => gruppe(b.gegenpartei || 'Unbekannt').bew.push(b));
+  G.forEach(g => { g.auf = r2(sum(g.anfang, a => +a.betrag || 0) + sum(g.bew.filter(b => b.betrag > 0), b => b.betrag)); g.tilg = r2(-sum(g.bew.filter(b => b.betrag < 0), b => b.betrag)); g.offen = r2(g.auf - g.tilg); });
+  return G.sort((a, b) => b.offen - a.offen);
+}
+function viewDarl() {
+  const G = darlGruppen(), offen = sum(G, g => g.offen);
+  return { ohneJahr: true, knoepfe: `<button class="btn primary" data-act="darlNeu">＋ Darlehen aus dem Vorjahr</button>`, body: `
+    <section class="kpi">
+      <div class="k hi"><div class="kv">${fmtE(offen)}</div><div class="kl">Darlehen noch offen</div></div>
+      <div class="k"><div class="kv">${fmtE(sum(G, g => g.auf))}</div><div class="kl">aufgenommen (inkl. Vorjahr)</div></div>
+      <div class="k"><div class="kv">${fmtE(sum(G, g => g.tilg))}</div><div class="kl">zurückgezahlt</div></div>
+    </section>
+    <p class="small muted">Darlehen sind weder Umsatz noch Kosten – sie stehen nicht in GuV und BWA, sondern im Jahresabschluss als Verbindlichkeit. Kosten sind nur Zinsen. Bankbuchungen kommen hierher, wenn sie die Art „Darlehen / Tilgung“ haben oder als Darlehen erkannt wurden.</p>
+    <div class="tw"><table class="tb"><thead><tr><th>Darlehensgeber</th><th class="num">Aufgenommen</th><th class="num">Zurückgezahlt</th><th class="num">Offen</th><th>Bewegungen</th></tr></thead><tbody>
+    ${G.map(g => `<tr><td><b>${esc(g.name)}</b></td><td class="num">${fmtE(g.auf)}</td><td class="num">${fmtE(g.tilg)}</td><td class="num ${g.offen > 0.005 ? 'neg' : ''}"><b>${fmtE(g.offen)}</b></td>
+      <td class="small">${g.anfang.map(a => `${fmtD(a.datum)} ${fmtE(a.betrag)} <span class="muted">(Vorjahr${a.notiz ? ', ' + esc(a.notiz) : ''})</span> <button class="lnk" data-act="darlWeg" data-i="${a.i}" title="Eintrag entfernen">✕</button>`).join('<br>')}${g.anfang.length && g.bew.length ? '<br>' : ''}
+        ${g.bew.map(b => `<a href="#" data-act="bank" data-id="${b.id}">${fmtD(b.datum)} ${fmtE(b.betrag)}</a> <span class="muted">${esc(zweckKurz(b.zweck).slice(0, 40))}</span>`).join('<br>')}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Keine Darlehen.</td></tr>'}
+    </tbody></table></div>` };
+}
+function darlNeu() {
+  openSheet({ title: 'Darlehen aus dem Vorjahr', okLabel: 'Speichern', html: `<p class="small muted">Für Darlehen, die vor 2026 aufs Konto kamen – die Rückzahlungen in 2026 rechnet die App selbst dagegen.</p>
+    <label class="fld"><span>Darlehensgeber</span><input class="inp" id="dlG" placeholder="z. B. Therese von Elstermann"></label>
+    <label class="fld"><span>Datum der Auszahlung</span><input class="inp" type="date" id="dlD"></label>
+    <label class="fld"><span>Betrag (€)</span><input class="inp" id="dlB" inputmode="decimal" placeholder="50.000,00"></label>
+    <label class="fld"><span>Notiz</span><input class="inp" id="dlN" placeholder="z. B. Darlehen vom 08.12.2025"></label>`,
+    onOk: async d => { const g = $('#dlG', d).value.trim(), dt = $('#dlD', d).value, b = parseNum($('#dlB', d).value);
+      if (!g || !dt || !(b > 0)) { toast('Bitte Darlehensgeber, Datum und Betrag angeben.'); return false; }
+      await DB.setSetting('darlehen_anfang', [...darlAnfang(), { geber: g, datum: dt, betrag: r2(b), notiz: $('#dlN', d).value.trim() || null }]); render(); toast('Darlehen gespeichert.'); } });
+}
 let AUSW_Z = {};   // Klick-Ziele der Zellen (Schlüssel → Belege), wird bei jedem Zeichnen neu gefüllt
 const aN = v => Math.abs(v) < 0.005 ? '<span class="muted">–</span>' : Math.round(v).toLocaleString('de-DE');
 const aN2 = v => Math.abs(v) < 0.005 ? '<span class="muted">–</span>' : (+v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -27,7 +68,7 @@ function viewAusw() {
   UI.guvJahr = UI.guvJahr && jahre.includes(UI.guvJahr) ? UI.guvJahr : (jahre.find(j => S.rechnungen.some(r => (r.datum || '').startsWith(j))) || jahre[0]);
   const t = AUSW.some(a => a[0] === UI.auswTab) ? UI.auswTab : 'guv';
   AUSW_Z = {}; buildIdx();
-  const sub = ({ guv: viewGuv, bwa: viewBwa, ustva: viewUstva, op: viewOp, liq: viewLiq, partner: viewPartner }[t])();
+  const sub = ({ guv: viewGuv, bwa: viewBwa, ustva: viewUstva, op: viewOp, liq: viewLiq, partner: viewPartner, darl: viewDarl }[t])();
   const jahrSel = sub.ohneJahr ? '' : `<select class="inp" data-chg="guvJahr" aria-label="Jahr">${jahre.map(j => `<option ${j === UI.guvJahr ? 'selected' : ''}>${j}</option>`).join('')}</select>`;
   return `
   <div class="toolbar"><h1>Auswertungen</h1><span class="sp"></span>${jahrSel}${sub.knoepfe || ''}${sub.csv === false ? '' : `<button class="btn" data-act="auswCsv" title="Tabelle als CSV für Excel">CSV</button>`}</div>
