@@ -279,7 +279,7 @@ async function eingangDrop(fileList) {
       let brutto = parseNum(x.brutto), netto = parseNum(x.netto), mwst = parseNum(x.mwst);
       if (brutto == null && netto != null) brutto = r2(netto + (mwst || 0));
       // Gutschrift / mindernde Korrektur / Storno = Einnahme → immer negativ (die KI liefert Beträge mal mit, mal ohne Minus)
-      const mindert = x.gutschrift || (brutto != null && brutto < 0) || (netto != null && netto < 0) || ['Gutschrift', 'Storno'].includes(x.art) || (x.art === 'Korrektur' && x.nachberechnung !== true);
+      const mindert = x.gutschrift || (brutto != null && brutto < 0) || (netto != null && netto < 0) || ['Gutschrift', 'Storno'].includes(x.art) || (x.art === 'Korrektur' && (x.nachberechnung !== true || /r(ü|ue)ckgabe|retoure?|return|gutschrift|erstatt|storn/i.test(String(x.beschreibung || ''))));   // Rückgabe/Retoure = immer Minderung
       if (mindert) { if (brutto != null) brutto = -Math.abs(brutto); if (netto) netto = -Math.abs(netto); if (mwst) mwst = -Math.abs(mwst); if (x.art !== 'Korrektur' && x.art !== 'Storno') x.gutschrift = true; }
       const partner = String(x.lieferant || '').trim() || (b.mail && b.mail.from ? b.mail.from.replace(/<.*>/, '').trim() : '');
       const nummer = String(x.nummer || '').trim();

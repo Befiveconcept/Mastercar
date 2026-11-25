@@ -48,7 +48,7 @@ async function rechnungDetail(id) {
           : '<p class="muted small">Noch keine Zahlung zugeordnet.</p>'}
         <div class="btnrow">
           <button class="btn primary" data-a="pay">Zahlung zuordnen</button>
-          ${isA ? '<button class="btn" data-a="bar">Bar bezahlt</button>' : ''}
+          <button class="btn" data-a="bar">${isA ? 'Bar bezahlt' : '€ Aus der Kasse bezahlt'}</button>
           <button class="btn" data-a="erl">${r.erledigt ? 'Wieder öffnen' : 'Als erledigt markieren'}</button>
           <button class="btn" data-a="edit">Bearbeiten</button>
           ${(+r.brutto || 0) < 0 || ['Gutschrift', 'Korrektur', 'Storno'].includes(r.art) ? `<button class="btn" data-a="bezug">↔ ${r.bezug_id ? 'Andere Rechnung' : 'Mit Rechnung verknüpfen'}</button>${r.bezug_id ? '<button class="btn" data-a="bezugWeg">Verknüpfung lösen</button>' : ''}` : ''}
@@ -82,7 +82,15 @@ async function rechnungDetail(id) {
     if (zo) { e.preventDefault(); const z = S.zuordnungen.find(x => x.id === zo.dataset.zoeffnen); if (z) { if (z.bank_id) return bankDetail(z.bank_id); if (z.sumup_id) return sumupDetail(z.sumup_id); if (z.kasse_id) return kasseDetail(z.kasse_id); } return; }
     const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
     if (a === 'pay') return zahlungPicker(r);
-    if (a === 'bar') { const rest = rStatus(r).offen; if (rest <= 0.005) return toast('Nichts offen.'); await zuordnen(r, null, 'bar', rest, 'Bar bezahlt'); return again(); }
+    if (a === 'bar') {
+      const s0 = rStatus(r), rest = s0.key === 'extern' ? sollOf(r) : s0.offen; if (rest <= 0.005) return toast('Nichts offen.');
+      // Lieferantenrechnung: passende, noch freie Kassen-Ausgabe (gleicher Betrag, ±14 Tage) direkt verknüpfen
+      if (!isA) { const br = +r.brutto || 0, k = S.kasse.filter(q => q.betrag < 0 && (Math.abs(-q.betrag - rest) <= 0.01 || Math.abs(-q.betrag - br) <= 0.01) && r.datum && Math.abs(daysBetween(r.datum, q.datum)) <= 14 && kStatus(q).rest > 0.005)
+          .sort((x, y) => Math.abs(daysBetween(r.datum, x.datum)) - Math.abs(daysBetween(r.datum, y.datum)))[0];
+        if (k) { const bt = r2(-k.betrag);
+          if (r.skonto && Math.abs(bt - br) <= 0.01) await DB.update('rechnungen', r.id, { skonto: null, skonto_satz: null, mit_skonto: null });   // bar voll bezahlt → kein Skonto
+          await zuordnen(r, k, 'kasse', bt, 'Aus der Kasse bezahlt'); toast('Mit Kassenbuch ' + fmtD(k.datum) + ' verknüpft.'); return again(); } }
+      await zuordnen(r, null, 'bar', rest, isA ? 'Bar bezahlt' : 'Aus der Barkasse bezahlt'); return again(); }
     if (a === 'erl') { await DB.update('rechnungen', r.id, { erledigt: !r.erledigt }); return again(); }
     if (a === 'ok') { await DB.update('rechnungen', r.id, { geprueft: true }); return again(); }
     if (a === 'edit') return rechnungForm(r.richtung, r);
