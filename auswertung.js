@@ -151,7 +151,9 @@ function ustDaten(jahr, ist) {
   S.rechnungen.forEach(r => {
     if (DOK_ARTEN.includes(r.art) || !r.datum) return;
     if (r.richtung === 'ausgang') {
-      if (!ist || (+r.brutto || 0) < 0) { if (inJ(r.datum)) umsatz(mon(r.datum), r); return; }   // Soll: nach Rechnungsdatum (Gutschriften immer nach Datum)
+      // Soll: nach Rechnungsdatum. Gutschriften/Stornorechnungen (−) und die stornierte Originalrechnung (+, erledigt) immer nach Datum,
+      // damit sich beide auch bei Ist-Versteuerung genau aufheben
+      if (!ist || (+r.brutto || 0) < 0 || r.erledigt) { if (inJ(r.datum)) umsatz(mon(r.datum), r); return; }
       // Ist-Versteuerung: im Monat des Geldeingangs, anteilig bei Teilzahlungen
       const zs = IDX.zByR.get(r.id) || [], b = +r.brutto || 0;
       if (!zs.length) { if ((istBezahltLaut(r.status_excel) || r.bezahlt_extern) && inJ(r.datum)) umsatz(mon(r.datum), r, 1, 'bezahlt laut Liste, Zahlung nicht zugeordnet'); return; }

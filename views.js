@@ -250,6 +250,27 @@ function offeneListe() {
       toast('Tabelle kopiert – jetzt in die Mail einfügen.'); return false;
     } });
 }
+// Fortlaufende Nummern der Ausgangsrechnungen (R26-0001 …) je Jahr prüfen: Lücken und doppelte Nummern
+function nrPruefung() {
+  const jahre = {};
+  // zwei Nummernkreise: R26-0001 (Werkstatt) und PR26001 (PR-Rechnungen)
+  S.rechnungen.forEach(r => { if (r.richtung !== 'ausgang') return; const s = String(r.nummer || '').trim();
+    const m = s.match(/^R\s?(\d{2})\s?-\s?(\d{1,5})$/i) || s.match(/^(PR)(\d{2})(\d{3})$/i); if (!m) return;
+    const key = m.length === 4 ? 'PR' + m[2] : 'R' + m[1], lauf = +(m.length === 4 ? m[3] : m[2]);
+    const j = jahre[key] = jahre[key] || {}; (j[lauf] = j[lauf] || []).push(r); });
+  return Object.entries(jahre).sort().map(([key, n]) => {
+    const pr = key.startsWith('PR'), jj = key.replace(/\D/g, '');
+    const ks = Object.keys(n).map(Number), max = Math.max(...ks), nr = i => pr ? `PR${jj}${String(i).padStart(3, '0')}` : `R${jj}-${String(i).padStart(4, '0')}`, fehlt = [];
+    for (let i = 1; i <= max; i++) if (!n[i]) fehlt.push(nr(i));
+    return { jahr: '20' + jj, von: nr(1), bis: nr(max), anzahl: ks.length, fehlt, doppelt: ks.filter(k => n[k].length > 1).map(nr) };
+  });
+}
+function nrHinweis() {
+  const p = nrPruefung(); if (!p.length) return '';
+  const fehler = p.filter(x => x.fehlt.length || x.doppelt.length);
+  if (!fehler.length) return `<p class="small muted">✓ Nummern lückenlos: ${p.map(x => `${x.von} bis ${x.bis}`).join(', ')}</p>`;
+  return `<div class="warn">⚠ Fortlaufende Rechnungsnummern nicht vollständig: ${fehler.map(x => [x.fehlt.length ? `<b>fehlt</b> ${x.fehlt.slice(0, 30).map(esc).join(', ')}${x.fehlt.length > 30 ? ` … (${x.fehlt.length} insgesamt)` : ''}` : '', x.doppelt.length ? `<b>doppelt</b> ${x.doppelt.map(esc).join(', ')}` : ''].filter(Boolean).join(' · ')).join(' | ')}. Bitte die fehlenden Rechnungen aus dem Werkstatt Journal bzw. als PDF nachladen.</div>`;
+}
 // Mehrfach-Filter: aufklappbare Liste mit Häkchen; mehrere Themen = alles, was zu einem davon passt
 const filtListe = view => [].concat(UI.filt[view] || 'alle').filter(k => k && k !== 'alle');
 function filtMulti(view, opts) {
@@ -381,11 +402,12 @@ function viewRechnungen(dir) {
     <button class="btn" data-act="auto" title="Neue Rechnungen, Bankbuchungen, SumUp und Kasse nochmal gegeneinander abgleichen">⟳ Abgleichen</button>
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
+  ${isA ? nrHinweis() : ''}
   ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
   <div class="filters">${filtMulti(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
-  ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
+  ${isA ? (() => { const s = f => sum(list, x => x.r[f]);   // Storno = Original (+) und Storno-Rechnung (−) → heben sich auf; passen sich jedem Filter an
     const t = [['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
     return `<div class="sumrow"><button class="sum-klick" data-act="offeneZeigen" title="Nur offene Rechnungen anzeigen, älteste oben"><small>Offene Rechnungen ›</small><b>${fmtE(offen)}</b></button>${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
   : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
