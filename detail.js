@@ -279,7 +279,17 @@ async function bankDetail(id) {
   if (st.rest > 0.005 && !b.art) { const zh = vs.filter(x => x.imZweck || belegeImZweck(b).some(r => r.id === x.r.id)).map(x => x.r).filter(r => !st.zuordnungen.some(z => z.rechnung_id === r.id));
     if (zh.length && Math.abs(r2(zh.reduce((a, r) => a + fluss(r), 0)) - st.rest) <= 0.01) { zh.forEach(r => { sel.set(r.id, r); const c = d.querySelector(`[data-sel="${r.id}"]`); if (c) c.checked = true; }); selZeigen(); } }
   d.addEventListener('change', e => { const c = e.target.closest('[data-sel]'); if (!c) return; const r = S.rechnungen.find(x => x.id === c.dataset.sel); if (c.checked && r) sel.set(r.id, r); else sel.delete(c.dataset.sel); selZeigen(); });
-  $('#bArt', d).onchange = async e => { await DB.update('bank', id, { art: e.target.value || null }); again(); };
+  $('#bArt', d).onchange = async e => {
+    const v = e.target.value || null;
+    // „Gehört zu 2025“, Privat, Umbuchung, Ignorieren: hängt die Buchung (z. B. automatisch) an Rechnungen, diese Zuordnungen lösen
+    if (v && v !== 'sumup' && st.zuordnungen.length) {
+      if (!confirm(`Diese Buchung ist ${st.zuordnungen.length} Rechnung(en) zugeordnet. Zuordnung lösen und als „${(B_ST[v] || [v])[0]}“ markieren?`)) { e.target.value = b.art || ''; return; }
+      const ids = st.zuordnungen.map(z => z.rechnung_id);
+      await DB.remove('zuordnungen', st.zuordnungen.map(z => z.id));
+      buildIdx(); if (typeof statusNachziehen === 'function') await statusNachziehen(ids).catch(() => { });
+    }
+    await DB.update('bank', id, { art: v }); again();
+  };
   const ka = $('#bKa', d); if (ka) ka.onchange = async e => { await DB.update('bank', id, { kostenart: e.target.value || null }); render(); toast('Gespeichert.'); };
   const rq = $('#rq', d); if (rq) rq.addEventListener('input', () => {
     const q = rq.value.toLowerCase().trim(); if (q.length < 2) return $('#rl', d).innerHTML = '';
