@@ -225,6 +225,30 @@ function filterR(list, f) {
 }
 const textOf = r => [r.nummer, r.partner, r.kundennr, r.kennzeichen, r.beschreibung, r.kostenart, r.unterkonto, r.art, r.notiz, r.brutto, fmtE(r.brutto), fmtD(r.datum)].join(' ').toLowerCase();
 function chips(view, opts) { return `<div class="chips">${opts.map(([k, l]) => `<button class="chip ${UI.filt[view] === k ? 'on' : ''}" data-act="filt" data-v="${view}" data-f="${k}">${l}</button>`).join('')}</div>`; }
+// Offene Kundenrechnungen als schlichte Tabelle zum Kopieren (z. B. in eine Mail – Outlook übernimmt die Tabelle)
+function offeneListe() {
+  const heute = todayISO();
+  const l = S.rechnungen.filter(r => r.richtung === 'ausgang' && r.art !== 'Mahnung').map(r => ({ r, st: rStatus(r) }))
+    .filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && x.st.offen > 0.01)
+    .sort((a, b) => (a.r.datum || '').localeCompare(b.r.datum || ''));
+  const td = 'border:1px solid #bbb;padding:4px 8px;font-family:Arial,sans-serif;font-size:13px', th = td + ';background:#eee;text-align:left';
+  const num = ';text-align:right;white-space:nowrap';
+  const kopf = ['Rechnungsnr.', 'Datum', 'Kunde', 'Kennzeichen', 'Fällig', 'Tage über', 'Brutto', 'Offen'];
+  const zeilen = l.map(({ r, st }) => { const f = faelligAm(r), tage = f && f < heute ? daysBetween(f, heute) : '';
+    return [r.nummer || '', fmtD(r.datum), r.partner || '', r.kennzeichen || '', fmtD(f), String(tage), fmtE(r.brutto), fmtE(st.offen)]; });
+  const summe = sum(l, x => x.st.offen);
+  const tabelle = `<table style="border-collapse:collapse"><thead><tr>${kopf.map((k, i) => `<th style="${th}${i >= 5 ? num : ''}">${k}</th>`).join('')}</tr></thead><tbody>
+    ${zeilen.map(z => `<tr>${z.map((v, i) => `<td style="${td}${i >= 5 ? num : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}
+    <tr><td style="${td};font-weight:bold" colspan="7">Summe offen (${l.length} Rechnungen)</td><td style="${td}${num};font-weight:bold">${fmtE(summe)}</td></tr></tbody></table>`;
+  const text = [kopf, ...zeilen, ['Summe offen', '', '', '', '', '', '', fmtE(summe)]].map(z => z.join('\t')).join('\n');
+  openSheet({ title: `Offene Kundenrechnungen (${l.length})`, wide: true, okLabel: '📋 Tabelle kopieren', cancelLabel: 'Schließen',
+    html: `<p class="small muted">Stand ${fmtD(heute)}. „Tabelle kopieren“ und in die Mail einfügen (Strg + V) – die Tabelle bleibt erhalten.</p><div class="tw">${tabelle}</div>`,
+    onOk: async () => {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([tabelle], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]); }
+      catch (e) { await navigator.clipboard.writeText(text); }
+      toast('Tabelle kopiert – jetzt in die Mail einfügen.'); return false;
+    } });
+}
 // Filter als Auswahlliste statt vieler Knöpfe
 function filtSel(view, opts) {
   const cur = UI.filt[view], hat = opts.some(([k]) => k === cur);
@@ -339,7 +363,7 @@ function viewRechnungen(dir) {
   const lim = UI.more[view] || 300, tot = sum(list, x => x.r.brutto), offen = sum(list, x => Math.max(0, x.st.offen));
   return `
   <div class="toolbar"><h1>${isA ? 'Rechnungsausgang' : 'Rechnungseingang'}</h1><span class="sp"></span>
-    ${isA ? `<button class="btn primary" data-act="pick" data-t="ausgang">⬆ Excel importieren</button>` : `${pruefOffen().length ? `<button class="btn primary" data-act="pruefen">✓ Prüfen & freigeben <span class="cnt">${pruefOffen().length}</span></button>` : ''}<button class="btn primary" data-act="bezahlen">💸 Bezahlen <span class="cnt">${zuZahlen().length}</span></button><button class="btn" data-act="pickBeleg">⬆ Belege hochladen</button>`}
+    ${isA ? `<button class="btn" data-act="offeneListe">📋 Offene als Liste</button><button class="btn primary" data-act="pick" data-t="ausgang">⬆ Excel importieren</button>` : `${pruefOffen().length ? `<button class="btn primary" data-act="pruefen">✓ Prüfen & freigeben <span class="cnt">${pruefOffen().length}</span></button>` : ''}<button class="btn primary" data-act="bezahlen">💸 Bezahlen <span class="cnt">${zuZahlen().length}</span></button><button class="btn" data-act="pickBeleg">⬆ Belege hochladen</button>`}
     <button class="btn" data-act="auto" title="Neue Rechnungen, Bankbuchungen, SumUp und Kasse nochmal gegeneinander abgleichen">⟳ Abgleichen</button>
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>

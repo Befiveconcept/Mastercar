@@ -223,6 +223,7 @@ Object.assign(A, {
     busy(false); render();
   },
   korbGo: () => korbVerarbeiten(),
+  offeneListe: () => offeneListe(),
   korbDel: d => { KORB.splice(+d.i, 1); korbRender(); },
   korbLeer: () => { KORB.length = 0; korbRender(); },
   korbPick: () => $('#anyIn').click(),
