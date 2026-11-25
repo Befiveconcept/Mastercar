@@ -483,7 +483,7 @@ function viewSumup() {
   <div class="sumline">${ok.length} Zahlungen · ${fmtE(sum(ok, x => x.s.betrag))} · Gebühren ${fmtE(sum(ok, x => x.s.gebuehr))}${colReset('sumup')}</div>
   <div class="tw"><table class="tb click">${colHead('sumup', cols, base)}<tbody>
   ${list.slice(0, lim).map(({ s, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean); const bk = s.bank_id && S.bank.find(b => b.id === s.bank_id);
-    return `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td>${esc(s.zahlungsart || '')}</td><td class="num">${fmtE(s.betrag)}</td><td class="num">${s.gebuehr != null ? fmtE(s.gebuehr) : ''}</td>
+    return `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${sumTxt(s)}</td><td>${esc(s.zahlungsart || '')}</td><td class="num">${fmtE(s.betrag)}</td><td class="num">${s.gebuehr != null ? fmtE(s.gebuehr) : ''}</td>
     <td class="small">${rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ')}</td><td class="small">${bk ? '✓ ' + fmtD(bk.datum) : s.auszahlung_datum ? fmtD(s.auszahlung_datum) : ''}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">Keine SumUp-Zahlungen.</td></tr>'}
   </tbody></table></div>${moreBtn('sumup', list.length, lim)}`;
 }
@@ -528,9 +528,9 @@ function viewAbgleich() {
   const blCols = [colDat('datum', 'Datum', b => b.datum), colTxt('name', 'Name', b => b.gegenpartei), colTxt('zweck', 'Verwendungszweck', b => zweckKurz(b.zweck)), colNum('betrag', 'Betrag', b => b.betrag)];
   const bl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, blCols);
     return `<div class="tw"><table class="tb click">${colHead(key, blCols, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „Bank“.</p>` : ''}`; };
-  const suCols = [colDat('datum', 'Datum', s => s.datum), colTxt('beschr', 'Beschreibung', s => s.beschreibung), colNum('betrag', 'Betrag', s => s.betrag)];
+  const suCols = [colDat('datum', 'Datum', s => s.datum), colTxt('beschr', 'Beschreibung', s => s.beschreibung || [s.zahlungsart, s.transaktion].filter(Boolean).join(' ')), colNum('betrag', 'Betrag', s => s.betrag)];
   const sl = (l0, key) => { if (!l0.length) return '<div class="empty small">Nichts offen.</div>'; const l = colApply(key, l0, suCols);
-    return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 300).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${esc(s.beschreibung || '')}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „SumUp“.</p>` : ''}`; };
+    return `<div class="tw"><table class="tb click">${colHead(key, suCols, l0)}<tbody>${l.slice(0, 300).map(s => `<tr data-act="sumup" data-id="${s.id}"><td>${fmtD(s.datum)}</td><td>${sumTxt(s)}</td><td class="num">${fmtE(s.betrag)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty small">Nichts für diesen Filter.</td></tr>'}</tbody></table></div>${l.length > 300 ? `<p class="small muted">+ ${l.length - 300} weitere unter „SumUp“.</p>` : ''}`; };
   const bankAuto = S.bank.filter(b => bStatus(b).key === 'auto').sort((a, b) => b.datum.localeCompare(a.datum));
   const blA = (l0, key) => { const c = [colTxt('art', 'Erkannt als', b => bStatus(b).label), ...blCols], l = colApply(key, l0, c);
     return `<div class="tw"><table class="tb click">${colHead(key, c, l0)}<tbody>${l.slice(0, 300).map(b => `<tr data-act="bank" data-id="${b.id}"><td>${badge(bStatus(b))}</td><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num">${fmtE(b.betrag)}</td></tr>`).join('')}</tbody></table></div>`; };
@@ -567,6 +567,8 @@ function viewAbgleich() {
     </details>`; }).join('')}</div>`;
 }
 
+// SumUp-Text: Beschreibung aus dem Export; fehlt sie (in SumUp nichts eingegeben), Kartenart und Transaktionscode zeigen
+ const sumTxt = s => s.beschreibung ? esc(s.beschreibung) : `<span class="muted">ohne Text · ${esc([s.zahlungsart, s.transaktion].filter(Boolean).join(' · '))}</span>`;
 /* ---------- Ablage: alle Belege als Ordner + eigene Dokumente ---------- */
 // Pfad UI.abl: '' = oberste Ebene · 'eingang/2026/Firma' · 'ausgang/2026/11' · 'avis/2026/Firma' · 'dok/Verträge/…'
 // „Dokumente“ liegen im Cloud-Speicher unter ablage/… (Ordner = Pfad, leere Ordner mit Platzhalter „.ordner“)
