@@ -1,7 +1,7 @@
 /* Mastercar Finanzen · App-Rahmen: Anmeldung, Navigation, Aktionen */
 const A = {};
 const START_HASH = location.hash;   // vor der Supabase-Anmeldung merken (die Bibliothek leert die Adresse beim Einlösen des Links)
-const VIEWS = { avis: () => viewAvis(), start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewAusw, abgleich: viewAbgleich, einst: viewEinst };
+const VIEWS = { avis: () => viewAvis(), start: viewStart, todos: viewTodos, ausgang: () => viewRechnungen('ausgang'), eingang: () => viewRechnungen('eingang'), bank: viewBank, sumup: viewSumup, kasse: viewKasse, hebe: viewHebe, guv: viewAusw, abgleich: viewAbgleich, einst: viewEinst, ablage: () => viewAblage() };
 let OMNI = null;   // die Suchleiste bleibt dasselbe Element und wird bei jedem Neuzeichnen unter die Überschrift gesetzt
 
 /* Hell/Dunkel: Schieberegler (Mond links = dunkel, Sonne rechts = hell), Wahl wird im Browser gemerkt */
@@ -224,6 +224,26 @@ Object.assign(A, {
   },
   korbGo: () => korbVerarbeiten(),
   offeneListe: () => offeneListe(),
+  // Ablage
+  ablGo: d => { UI.abl = d.p || ''; UI.q.ablage = ''; render(); window.scrollTo(0, 0); },
+  ablOeffnen: async d => { const w = window.open('', '_blank'); try { const u = await DB.fileUrl(d.f); if (w) w.location = u; else location.href = u; } catch (e) { w?.close(); toast('Datei nicht geöffnet: ' + e.message); } },
+  dokHoch: () => { let i = $('#dokIn'); if (!i) { i = document.createElement('input'); i.type = 'file'; i.multiple = true; i.hidden = true; i.id = 'dokIn'; i.onchange = () => { dokHochladen([...i.files]); i.value = ''; }; document.body.appendChild(i); } i.click(); },
+  dokOrdner: async () => {
+    const n = dokOrdnerName(prompt('Name des neuen Ordners (z. B. Verträge, Versicherungen):') || ''); if (!n) return;
+    const sub = (UI.abl || '').split('/').slice(1).concat(n).join('/');
+    try { await DB.upload(dokPrefix(sub) + '/' + DOK_PLATZ, new Blob([''], { type: 'text/plain' })); await dokLaden((UI.abl || '').split('/').slice(1).join('/'), true); UI.abl = 'dok/' + sub; render(); }
+    catch (e) { toast('Ordner nicht angelegt: ' + e.message); }
+  },
+  dokOrdnerWeg: async () => {
+    const t = (UI.abl || '').split('/'), sub = t.slice(1).join('/'); if (!sub || !confirm(`Ordner „${t[t.length - 1]}“ löschen?`)) return;
+    try { await DB.removeFile(dokPrefix(sub) + '/' + DOK_PLATZ); delete DOK.cache[dokPrefix(sub)]; UI.abl = t.slice(0, -1).join('/'); await dokLaden(UI.abl.split('/').slice(1).join('/'), true); render(); }
+    catch (e) { toast('Nicht gelöscht: ' + e.message); }
+  },
+  dokWeg: async d => {
+    if (!confirm(`„${dokName(d.f.split('/').pop())}“ endgültig löschen?`)) return;
+    try { await DB.removeFile(d.f); await dokLaden((UI.abl || '').split('/').slice(1).join('/'), true); render(); toast('Gelöscht.'); }
+    catch (e) { toast('Nicht gelöscht: ' + e.message); }
+  },
   korbDel: d => { KORB.splice(+d.i, 1); korbRender(); },
   korbLeer: () => { KORB.length = 0; korbRender(); },
   korbPick: () => $('#anyIn').click(),
@@ -314,6 +334,8 @@ document.addEventListener('drop', e => {
   // Rechnung geöffnet und genau ein Beleg reingezogen → an diese Rechnung hängen
   const rid = $('#sheet')?.dataset.rid, fs = [...e.dataTransfer.files];
   if (rid && fs.length === 1 && !isTable(fs[0])) return belegZuRechnung(rid, fs[0]);
+  // Ablage → Dokumente: Dateien landen im geöffneten Ordner
+  if (UI.view === 'ablage' && /^dok(\/|$)/.test(UI.abl || '') && !$('#sheet')) return dokHochladen(fs);
   korbAdd(e.dataTransfer.files);   // erst sammeln, verarbeitet wird mit „Verarbeiten“
 });
 

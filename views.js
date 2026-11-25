@@ -3,7 +3,7 @@ const UI = { view: 'start', period: 'jahr', filt: { ausgang: 'alle', eingang: 'a
 const NAV = [
   ['start', 'Übersicht', '◧'], ['todos', 'To-Dos', '☑'], ['ausgang', 'Rechnungsausgang', '↗'], ['eingang', 'Rechnungseingang', '↘'],
   ['bank', 'Bank', '⇄'], ['sumup', 'SumUp / EC', '▭'], ['kasse', 'Kassenbuch', '€'], ['hebe', 'Hebebühne', '⇡'],
-  ['avis', 'Zahlungsavis', '✉'], ['guv', 'Auswertungen', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
+  ['avis', 'Zahlungsavis', '✉'], ['ablage', 'Ablage', '🗂'], ['guv', 'Auswertungen', 'Σ'], ['abgleich', 'Abgleich & Probleme', '⚑'], ['einst', 'Einstellungen', '⚙']
 ];
 const PERIODS = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['quartal', 'Dieses Quartal'], ['jahr', 'Dieses Jahr'], ['12m', 'Letzte 12 Monate'], ['alle', 'Alles (ab 2026)']];
 function periodRange(p) {
@@ -233,14 +233,15 @@ function offeneListe() {
     .sort((a, b) => (a.r.datum || '').localeCompare(b.r.datum || ''));
   const td = 'border:1px solid #bbb;padding:4px 8px;font-family:Arial,sans-serif;font-size:13px', th = td + ';background:#eee;text-align:left';
   const num = ';text-align:right;white-space:nowrap';
-  const kopf = ['Rechnungsnr.', 'Datum', 'Kunde', 'Kennzeichen', 'Fällig', 'Tage über', 'Brutto', 'Offen'];
+  const kopf = ['Rechnungsnr.', 'Datum', 'Kunde', 'Kennzeichen', 'Fällig', 'Tage über', 'Brutto', 'Offen', 'Notiz'];
+  const zahl = i => i >= 5 && i <= 7;
   const zeilen = l.map(({ r, st }) => { const f = faelligAm(r), tage = f && f < heute ? daysBetween(f, heute) : '';
-    return [r.nummer || '', fmtD(r.datum), r.partner || '', r.kennzeichen || '', fmtD(f), String(tage), fmtE(r.brutto), fmtE(st.offen)]; });
+    return [r.nummer || '', fmtD(r.datum), r.partner || '', r.kennzeichen || '', fmtD(f), String(tage), fmtE(r.brutto), fmtE(st.offen), String(r.notiz || '').replace(/\s+/g, ' ').trim()]; });
   const summe = sum(l, x => x.st.offen);
-  const tabelle = `<table style="border-collapse:collapse"><thead><tr>${kopf.map((k, i) => `<th style="${th}${i >= 5 ? num : ''}">${k}</th>`).join('')}</tr></thead><tbody>
-    ${zeilen.map(z => `<tr>${z.map((v, i) => `<td style="${td}${i >= 5 ? num : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}
-    <tr><td style="${td};font-weight:bold" colspan="7">Summe offen (${l.length} Rechnungen)</td><td style="${td}${num};font-weight:bold">${fmtE(summe)}</td></tr></tbody></table>`;
-  const text = [kopf, ...zeilen, ['Summe offen', '', '', '', '', '', '', fmtE(summe)]].map(z => z.join('\t')).join('\n');
+  const tabelle = `<table style="border-collapse:collapse"><thead><tr>${kopf.map((k, i) => `<th style="${th}${zahl(i) ? num : ''}">${k}</th>`).join('')}</tr></thead><tbody>
+    ${zeilen.map(z => `<tr>${z.map((v, i) => `<td style="${td}${zahl(i) ? num : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}
+    <tr><td style="${td};font-weight:bold" colspan="7">Summe offen (${l.length} Rechnungen)</td><td style="${td}${num};font-weight:bold">${fmtE(summe)}</td><td style="${td}"></td></tr></tbody></table>`;
+  const text = [kopf, ...zeilen, ['Summe offen', '', '', '', '', '', '', fmtE(summe), '']].map(z => z.join('\t')).join('\n');
   openSheet({ title: `Offene Kundenrechnungen (${l.length})`, wide: true, okLabel: '📋 Tabelle kopieren', cancelLabel: 'Schließen',
     html: `<p class="small muted">Stand ${fmtD(heute)}. „Tabelle kopieren“ und in die Mail einfügen (Strg + V) – die Tabelle bleibt erhalten.</p><div class="tw">${tabelle}</div>`,
     onOk: async () => {
@@ -521,6 +522,81 @@ function viewAbgleich() {
       <summary><span class="abg-t">${x.t}</span><span class="cnt">${n}</span>${n && su ? `<span class="abg-s">${fmtE(su)}</span>` : ''}<span class="sp"></span><span class="abg-z">${n ? '' : 'alles gut'}</span><span class="abg-c" aria-hidden="true">▾</span></summary>
       <div class="abg-b">${x.info ? `<p class="small muted">${x.info}</p>` : ''}${auf ? (n || x.immer ? x.html() : '<div class="empty small">Nichts – alles gut.</div>') : ''}</div>
     </details>`; }).join('')}</div>`;
+}
+
+/* ---------- Ablage: alle Belege als Ordner + eigene Dokumente ---------- */
+// Pfad UI.abl: '' = oberste Ebene · 'eingang/2026/Firma' · 'ausgang/2026/11' · 'avis/2026/Firma' · 'dok/Verträge/…'
+// „Dokumente“ liegen im Cloud-Speicher unter ablage/… (Ordner = Pfad, leere Ordner mit Platzhalter „.ordner“)
+const DOK = { cache: {}, laedt: {} };
+const DOK_PLATZ = '.ordner';
+// Ordnernamen für den Speicher: Umlaute ausschreiben, nur erlaubte Zeichen
+const dokOrdnerName = (n, max = 60) => String(n || '').trim().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss')
+  .normalize('NFKD').replace(/[^\w .()&+,-]+/g, '_').replace(/\s+/g, ' ').slice(-max).trim();
+(() => { const s = document.createElement('style'); s.textContent = `.abl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0 16px}
+.abl-o{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);color:inherit;text-align:left;cursor:pointer;font:inherit}
+.abl-o:hover{border-color:var(--y)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
+const dokPrefix = pfad => 'ablage' + (pfad ? '/' + pfad : '');
+const dokName = n => String(n || '').replace(/^\d{10,}_/, '');   // Zeitstempel vorne ausblenden
+async function dokLaden(pfad, neu) {
+  const pre = dokPrefix(pfad); if (!neu && DOK.cache[pre]) return DOK.cache[pre];
+  if (!DB.cloud) return (DOK.cache[pre] = { ordner: [], dateien: [] });
+  const { data, error } = await DB.sb.storage.from('belege').list(pre, { limit: 1000, sortBy: { column: 'name', order: 'asc' } });
+  if (error) throw error;
+  const ordner = [], dateien = [];
+  (data || []).forEach(o => { if (o.name === DOK_PLATZ) return; if (!o.id) ordner.push(o.name); else dateien.push({ name: o.name, pfad: pre + '/' + o.name, groesse: o.metadata?.size, datum: (o.created_at || '').slice(0, 10) }); });
+  return (DOK.cache[pre] = { ordner, dateien });
+}
+function ablBaum() {
+  // Belege aus der App, nach Bereich → Jahr → Firma/Monat
+  const t = { eingang: {}, ausgang: {}, avis: {} }, add = (o, ks, x) => { let n = o; ks.forEach((k, i) => { n = n[k] = n[k] || (i === ks.length - 1 ? [] : {}); }); n.push(x); };
+  S.rechnungen.forEach(r => { if (!r.datei) return; const j = (r.datum || '').slice(0, 4) || 'ohne Datum';
+    if (r.richtung === 'ausgang') add(t.ausgang, [j, MONATE_LANG[+(r.datum || '').slice(5, 7) - 1] || 'ohne Datum'], { r, typ: 'r' });
+    else add(t.eingang, [j, String(r.partner || 'Unbekannt').trim() || 'Unbekannt'], { r, typ: 'r' }); });
+  (S.avise || []).forEach(a => { if (!a.datei) return; add(t.avis, [(a.datum || '').slice(0, 4) || 'ohne Datum', String(a.partner || 'Unbekannt').trim() || 'Unbekannt'], { r: a, typ: 'a' }); });
+  return t;
+}
+const ablZahl = n => Array.isArray(n) ? n.length : Object.values(n).reduce((s, x) => s + ablZahl(x), 0);
+function viewAblage() {
+  const pfad = UI.abl || '', teile = pfad ? pfad.split('/') : [], bereich = teile[0];
+  const NAMEN = { eingang: 'Rechnungseingang', ausgang: 'Rechnungsausgang', avis: 'Zahlungsavise', dok: 'Dokumente' };
+  const kr = [`<button class="lnk" data-act="ablGo" data-p="">Ablage</button>`].concat(teile.map((t, i) => `<button class="lnk" data-act="ablGo" data-p="${esc(teile.slice(0, i + 1).join('/'))}">${esc(i === 0 ? NAMEN[t] || t : t)}</button>`)).join(' <span class="muted">›</span> ');
+  const ordnerKachel = (p, name, n, ic = '📁') => `<button class="abl-o" data-act="ablGo" data-p="${esc(p)}"><span class="abl-i">${ic}</span><b>${esc(name)}</b><small class="muted">${n === '' ? '' : n + ' Datei' + (n === 1 ? '' : 'en')}</small></button>`;
+  const q = (UI.q.ablage || '').toLowerCase().trim();
+  const baum = ablBaum();
+  let inhalt = '';
+  const belegZeilen = l => `<div class="tw"><table class="tb click"><thead><tr><th>Datei</th><th>Datum</th><th>Firma / Kunde</th><th>Nr.</th><th class="num">Betrag</th><th></th></tr></thead><tbody>${l.map(({ r, typ }) =>
+    `<tr data-act="${typ === 'a' ? 'avisD' : 'rechnung'}" data-id="${r.id}"><td>📄 ${esc(r.dateiname || r.datei.split('/').pop())}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td class="mono">${esc(r.nummer || '')}</td><td class="num">${r.brutto != null ? fmtE(r.brutto) : r.betrag != null ? fmtE(r.betrag) : ''}</td><td><button class="btn sm" data-act="ablOeffnen" data-f="${esc(r.datei)}">Öffnen</button></td></tr>`).join('')}</tbody></table></div>`;
+  if (q) {   // Suche über alle Belege der App
+    const alle = []; const lauf = n => Array.isArray(n) ? alle.push(...n) : Object.values(n).forEach(lauf); lauf(baum);
+    const treffer = alle.filter(({ r }) => [r.dateiname, r.partner, r.nummer, r.datum, r.brutto, r.betrag].join(' ').toLowerCase().includes(q));
+    inhalt = `<p class="small muted">${treffer.length} Treffer in den Belegen der App${treffer.length > 300 ? ' (die ersten 300)' : ''}.</p>` + (treffer.length ? belegZeilen(treffer.sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '')).slice(0, 300)) : '');
+  } else if (!bereich) {
+    inhalt = `<div class="abl-grid">${['eingang', 'ausgang', 'avis'].map(k => ordnerKachel(k, NAMEN[k], ablZahl(baum[k]))).join('')}${ordnerKachel('dok', 'Dokumente', '', '🗂')}</div>
+      <p class="small muted">Rechnungseingang, Rechnungsausgang und Zahlungsavise füllen sich von selbst mit jeder hochgeladenen PDF. Unter „Dokumente“ kannst du eigene Ordner für alles andere anlegen – Verträge, Versicherungen, Mietvertrag, TÜV, Personal …</p>`;
+  } else if (bereich !== 'dok') {
+    let n = baum[bereich]; for (const t of teile.slice(1)) n = n && n[t];
+    if (!n) inhalt = '<div class="empty">Ordner nicht gefunden.</div>';
+    else if (Array.isArray(n)) inhalt = belegZeilen(n.slice().sort((a, b) => (b.r.datum || '').localeCompare(a.r.datum || '')));
+    else { const ks = Object.keys(n).sort((a, b) => teile.length === 1 ? b.localeCompare(a) : bereich === 'ausgang' ? MONATE_LANG.indexOf(b) - MONATE_LANG.indexOf(a) : a.localeCompare(b, 'de', { sensitivity: 'base' }));
+      inhalt = `<div class="abl-grid">${ks.map(k => ordnerKachel(pfad + '/' + k, k, ablZahl(n[k]))).join('')}</div>`; }
+  } else {
+    const sub = teile.slice(1).join('/'), pre = dokPrefix(sub), d = DOK.cache[pre];
+    if (!DB.cloud) inhalt = '<div class="empty">Eigene Dokumente gehen nur in der Online-Version.</div>';
+    else if (!d) { if (!DOK.laedt[pre]) { DOK.laedt[pre] = 1; dokLaden(sub).catch(e => toast('Ordner nicht geladen: ' + e.message)).finally(() => { delete DOK.laedt[pre]; if (UI.view === 'ablage') render(); }); } inhalt = '<div class="empty small">Lade …</div>'; }
+    else inhalt = `<div class="btnrow"><button class="btn primary" data-act="dokHoch">⬆ Dateien hochladen</button><button class="btn" data-act="dokOrdner">＋ Neuer Ordner</button>${sub && !d.ordner.length && !d.dateien.length ? '<button class="btn danger" data-act="dokOrdnerWeg">Leeren Ordner löschen</button>' : ''}</div>
+      <p class="small muted">Dateien einfach in dieses Fenster ziehen – sie landen in diesem Ordner.</p>
+      ${d.ordner.length ? `<div class="abl-grid">${d.ordner.map(o => ordnerKachel(pfad + '/' + o, o, '')).join('')}</div>` : ''}
+      ${d.dateien.length ? `<div class="tw"><table class="tb"><thead><tr><th>Datei</th><th>Hochgeladen</th><th class="num">Größe</th><th></th></tr></thead><tbody>${d.dateien.map(f => `<tr><td>📄 ${esc(dokName(f.name))}</td><td>${fmtD(f.datum)}</td><td class="num">${f.groesse ? kb(f.groesse) : ''}</td><td class="nowrap"><button class="btn sm" data-act="ablOeffnen" data-f="${esc(f.pfad)}">Öffnen</button> <button class="btn sm danger" data-act="dokWeg" data-f="${esc(f.pfad)}">Löschen</button></td></tr>`).join('')}</tbody></table></div>`
+        : !d.ordner.length ? '<div class="empty small">Noch leer.</div>' : ''}`;
+  }
+  return `<div class="toolbar"><h1>Ablage</h1><span class="sp"></span>${searchIn('ablage', 'Datei, Firma, Nummer, Betrag …')}</div>
+    <div class="abl-pfad">${kr}</div>${inhalt}`;
+}
+async function dokHochladen(files) {
+  const sub = (UI.abl || '').split('/').slice(1).join('/'); if (!files.length) return;
+  busy(true, `Lade ${files.length} Datei${files.length === 1 ? '' : 'en'} hoch …`);
+  let ok = 0; for (const f of files) { try { await DB.upload(`${dokPrefix(sub)}/${Date.now()}_${dokOrdnerName(f.name, 120) || 'Datei'}`, f); ok++; } catch (e) { toast(f.name + ': ' + e.message); } }
+  await dokLaden(sub, true).catch(() => { }); busy(false); render(); toast(`${ok} Datei${ok === 1 ? '' : 'en'} abgelegt.`);
 }
 
 /* ---------- Einstellungen ---------- */
