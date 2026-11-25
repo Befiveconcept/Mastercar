@@ -403,13 +403,19 @@ function viewRechnungen(dir) {
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
   ${isA ? nrHinweis() : ''}
-  ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
   <div class="filters">${filtMulti(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
-  <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
+  ${isA ? (colAktiv(view) ? `<div class="sumline">${list.length} Rechnungen${colReset(view)}</div>` : '') : `<div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}${colReset(view)}</div>`}
   ${isA ? (() => { const s = f => sum(list, x => x.r[f]);   // Storno = Original (+) und Storno-Rechnung (−) → heben sich auf; passen sich jedem Filter an
     const t = [['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
-    return `<div class="sumrow"><button class="sum-klick" data-act="offeneZeigen" title="Nur offene Rechnungen anzeigen, älteste oben"><small>Offene Rechnungen ›</small><b>${fmtE(offen)}</b></button>${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
+    // Umsatz je Monat (netto) zum Aufklappen – passt sich Filter und Zeitraum an
+    const mon = {}; list.forEach(x => { if (!x.r.datum) return; const k = x.r.datum.slice(0, 7), m = mon[k] = mon[k] || { n: 0, b: 0, a: 0 }; m.n += nettoA(x.r); m.b += +x.r.brutto || 0; m.a++; });
+    const mk = Object.keys(mon).sort(), mt = { n: sum(mk, k => mon[k].n), b: sum(mk, k => mon[k].b), a: sum(mk, k => mon[k].a) };
+    UI.auf = UI.auf || {};
+    const monTab = mk.length ? `<details class="xl" data-auf="ausgangMon" ${UI.auf.ausgangMon ? 'open' : ''}><summary>📅 Umsatz je Monat (netto)</summary><div class="tw"><table class="tb"><thead><tr><th>Monat</th><th class="num">Rechnungen</th><th class="num">Netto</th><th class="num">Brutto</th></tr></thead><tbody>
+      ${mk.map(k => `<tr><td>${MONATE_LANG[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}</td><td class="num">${mon[k].a}</td><td class="num"><b>${fmtE(mon[k].n)}</b></td><td class="num">${fmtE(mon[k].b)}</td></tr>`).join('')}
+      <tr><td><b>Summe</b></td><td class="num"><b>${mt.a}</b></td><td class="num"><b>${fmtE(mt.n)}</b></td><td class="num"><b>${fmtE(mt.b)}</b></td></tr></tbody></table></div></details>` : '';
+    return `<div class="sumrow"><button class="sum-klick" data-act="offeneZeigen" title="Nur offene Rechnungen anzeigen, älteste oben"><small>Offene Rechnungen ›</small><b>${fmtE(offen)}</b></button>${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>${monTab}`; })()
   : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
     const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
@@ -500,6 +506,8 @@ function wartetAufRechnung(text, datum, stand) {
 function viewAbgleich() {
   const all = S.rechnungen.map(r => ({ r, st: rStatus(r) }));
   const grp = k => all.filter(x => x.st.key === k);
+  const dupIds = new Set([...rDoppelt('eingang').keys(), ...rDoppelt('ausgang').keys()]), dupErf = all.filter(x => dupIds.has(x.r.id))
+    .sort((a, b) => String(a.r.partner || '').localeCompare(String(b.r.partner || ''), 'de') || String(a.r.nummer || '').localeCompare(String(b.r.nummer || '')));
   const rCols = dirCol => [...(dirCol ? [{ k: 'dir', l: '', v: x => x.r.richtung === 'ausgang' ? '↗ Ausgang' : '↘ Eingang', sel: true }] : []), COL.nr, COL.datum, colTxt('partner', 'Partner', x => x.r.partner),
     colNum('brutto', 'Brutto', x => x.r.brutto), colNum('bez', 'Bezahlt', x => x.st.bezahlt), colNum('diff', 'Differenz', x => r2(-x.st.offen)),
     { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }, { k: 'st', l: 'Status', v: x => x.st.label, sel: true },
@@ -534,6 +542,8 @@ function viewAbgleich() {
     { k: 'doppelt', t: '⚠ Doppelt bezahlt', ton: 'bad', l: grp('doppelt'), s: x => -x.st.offen, html: () => rows(grp('doppelt'), true, 'abgD'), info: 'Dieselbe Rechnung wurde zweimal bezahlt – Rückzahlung prüfen.' },
     { k: 'ueber', t: 'Zu viel bezahlt', ton: 'warn', l: grp('ueber'), s: x => -x.st.offen, html: () => rows(grp('ueber'), true, 'abgU') },
     { k: 'teil', t: 'Zu wenig bezahlt', ton: 'warn', l: grp('teil'), s: x => x.st.offen, html: () => rows(grp('teil'), true, 'abgT') },
+    { k: 'dupErf', t: '⚠ Doppelt erfasste Rechnungen', ton: 'bad', l: dupErf, s: x => x.r.brutto, html: () => rows(dupErf, true, 'abgDE'),
+      info: 'Gleiche Firma, Nummer, Betrag und Datum (bzw. einmal ohne Nummer). Den überzähligen Eintrag öffnen und löschen – am besten den ohne Zahlung und ohne PDF. Ist es keine Doppelung, in die Notiz „kein Duplikat“ schreiben.' },
     { k: 'ueberf', t: 'Überfällige Kundenrechnungen', ton: 'bad', l: ueberf, s: x => x.st.offen, html: () => rows(ueberf, false, 'abgF'), info: 'Zahlungsziel überschritten, noch keine Zahlung gefunden.' },
     { k: 'bank', t: 'Zahlungseingänge ohne Rechnung', ton: 'warn', l: bankOffen, s: b => b.betrag, html: () => bl(bankOffen, 'abgB') },
     { k: 'sumup', t: 'EC-Zahlungen (SumUp) ohne Rechnung', ton: 'warn', l: sumOffen, s: s => s.betrag, html: () => sl(sumOffen, 'abgS'),

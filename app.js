@@ -73,7 +73,7 @@ function twEnhance(root) {
     const key = (UI.view === 'guv' && UI.auswTab && UI.auswTab !== 'guv' ? 'ausw-' + UI.auswTab : UI.view) + ':' + i; tw.dataset.twk = key;   // jede Auswertung merkt sich ihre Spalten selbst
     const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
-      <span class="small muted twhint">Zum Verschieben in die Tabelle klicken und ziehen</span><span class="sp"></span><button class="btn sm" data-tw="sp" title="Spalten ein- und ausblenden">☰ Spalten</button><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
+      <span class="sp"></span><button class="btn sm" data-tw="sp" title="Spalten ein- und ausblenden">☰ Spalten</button><button class="btn sm" data-tw="max">${TW.max === key ? '✕ Verkleinern' : '⤢ Maximieren'}</button></div>`;
     box.appendChild(tw); tw.classList.add('scroll');
     twSpalten(tw, key, box);
     if (TW.max === key) { box.classList.add('max'); document.body.classList.add('tw-max-on'); }
@@ -326,6 +326,7 @@ let qT; document.addEventListener('input', e => { const v = e.target.dataset && 
 // Problemseite: Rubrik auf-/zuklappen merken; Inhalt wird erst beim Aufklappen gezeichnet
 document.addEventListener('toggle', e => {
   const d = e.target;
+  if (d.matches && d.dataset && d.dataset.auf) { UI.auf = { ...(UI.auf || {}), [d.dataset.auf]: d.open }; return; }   // aufgeklappte Übersichten merken
   if (d.matches && d.matches('details.msel')) { UI.mselAuf = { ...(UI.mselAuf || {}), [d.dataset.msel]: d.open }; return; } if (!d.matches || !d.matches('details.abg')) return;
   UI.abgOpen = UI.abgOpen || {}; UI.abgOpen[d.dataset.abg] = d.open;
   if (d.open && !d.querySelector('.tw, .empty')) { const y = window.scrollY; render(); window.scrollTo(0, y); }
