@@ -348,7 +348,7 @@ function viewRechnungen(dir) {
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
-    const t = [['Werkstatt', s('lohn')], ['Ersatzteile', s('teile')], ['Sonstiges', s('sonstiges')], ['Altteile', s('altteile')], ['Dl.Posten', s('durchlaufend')], ['MwSt.', s('mwst')], ['davon USt. Altteile', s('ust_alt')], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
+    const t = [['Offene Rechnungen', offen], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
   : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
     const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
