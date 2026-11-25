@@ -226,7 +226,7 @@ const nameTok = s => { s = s || ''; let v = NT_CACHE.get(s); if (!v) { v = nameT
 function expandNr(text) {
   const t = String(text || ''), add = [], re = /[a-z]?\s*(\d{2})\s*[\/\-.]\s*(\d{3,5})((?:\s*[+,&\/\-\s]\s*\d{3,4}\b)*)/gi; let m;
   // dreistellig („r26/114“) → vierstellig (R26-0114); fünfstellig bleibt (ist dann ein Tippfehler und passt zu nichts)
-  while ((m = re.exec(t))) { add.push('R' + m[1] + '-' + String(+m[2]).padStart(4, '0'));   // „r26/00865“ = R26-0865 (m[3].match(/\d{3,4}/g) || []).forEach(n => add.push('R' + m[1] + '-' + n.padStart(4, '0'))); }
+  while ((m = re.exec(t))) { add.push('R' + m[1] + '-' + String(+m[2]).padStart(4, '0')); /* „r26/00865“ = R26-0865 */ (m[3].match(/\d{3,4}/g) || []).forEach(n => add.push('R' + m[1] + '-' + n.padStart(4, '0'))); }
   return add.length ? t + ' · ' + add.join(' · ') : t;
 }
 const siehtWieNummerAus = text => /\b[a-z]?\s*\d{2}\s*[\/\-.]\s*\d{3,5}\b/i.test(String(text || ''));
