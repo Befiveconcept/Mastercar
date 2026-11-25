@@ -99,17 +99,8 @@ function viewStart() {
     <div class="k"><div class="kv">${fmtE(K.ausgaben)}</div><div class="kl">Kosten netto (Rechnungseingang)</div></div>
     <button class="k" data-act="go" data-v="guv" data-t="guv"><div class="kv ${K.ergebnis < 0 ? 'neg' : ''}">${fmtE(K.ergebnis)}</div><div class="kl">Ergebnis netto → GuV</div></button>
     <button class="k" data-act="go" data-v="ausgang" data-f="offen"><div class="kv">${fmtE(sum(K.offenA, x => x.st.offen))}</div><div class="kl">Offene Kundenrechnungen · ${K.offenA.length}</div></button>
-    <button class="k ${K.ueberA.length ? 'alarm' : ''}" data-act="go" data-v="ausgang" data-f="ueberfaellig"><div class="kv">${fmtE(sum(K.ueberA, x => x.st.offen))}</div><div class="kl">davon überfällig · ${K.ueberA.length}</div></button>
-    ${(() => { const ab = K.offenE.filter(x => istAbbuchung(x.r)), ma = K.offenE.filter(x => !istAbbuchung(x.r));   // Lieferanten: wird abgebucht vs. müssen wir selbst überweisen
-      return `<button class="k" data-act="go" data-v="eingang" data-f="abb"><div class="kv">${fmtE(sum(ab, x => x.st.offen))}</div><div class="kl">Lieferanten: noch Abbuchung offen · ${ab.length}</div></button>
-    <button class="k" data-act="go" data-v="eingang" data-f="manuell"><div class="kv">${fmtE(sum(ma, x => x.st.offen))}</div><div class="kl">Lieferanten: noch manuelle Zahlung offen · ${ma.length}</div></button>
-    <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen gesamt · ${K.offenE.length}</div></button>`; })()}
+    <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen · ${K.offenE.length}</div></button>
   </section>
-  ${K.probleme.length || K.bankOffen.length || K.pruefen.length ? `<section class="alerts">
-    ${K.probleme.length ? `<button class="alert bad" data-act="go" data-v="abgleich">⚑ <b>${K.probleme.length}</b> Rechnung${K.probleme.length === 1 ? '' : 'en'} mit falschem Betrag (zu viel / zu wenig / doppelt)</button>` : ''}
-    ${K.bankOffen.length ? `<button class="alert" data-act="go" data-v="bank" data-f="offen">⇄ <b>${K.bankOffen.length}</b> Zahlungseingänge ohne Rechnung (${fmtE(sum(K.bankOffen, b => b.betrag))})</button>` : ''}
-    ${K.pruefen.length ? `<button class="alert ai" data-act="go" data-v="eingang" data-f="pruefen">✔ <b>${K.pruefen.length}</b> Belege noch nicht geprüft</button>` : ''}
-  </section>` : ''}
   <div class="grid2">
     <section class="card"><h3>Umsatz und Kosten je Monat (netto)</h3>${barChart(months.map(monthLabel), [{ name: 'Umsatz', cls: 'c1', data: months.map(k => r2(K.mon[k].e)) }, { name: 'Kosten', cls: 'c2', data: months.map(k => r2(K.mon[k].a)) }])}</section>
     <section class="card"><h3>Umsatz nach Bereich (netto)</h3>${barChart(umM.map(monthLabel), [{ name: 'Werkstatt (Lohn)', cls: 'c1', data: umM.map(k => r2(K.um[k].l)) }, { name: 'Ersatzteile', cls: 'c2', data: umM.map(k => r2(K.um[k].t)) }, { name: 'Sonstiges', cls: 'c3', data: umM.map(k => r2(K.um[k].s)) }])}</section>
@@ -120,7 +111,6 @@ function viewStart() {
       <div class="kv2"><span>Geldausgang Bank</span><b class="neg">${fmtE(K.bankOut ? -K.bankOut : 0)}</b></div>
       <div class="kv2 tot"><span>Saldo</span><b>${fmtE(K.bankIn - K.bankOut)}</b></div>
       <div class="kv2"><span>Umsatz brutto (Ausgang)</span><b>${fmtE(K.einBrutto)}</b></div>
-      <div class="kv2"><span>Kassenbestand</span><b>${fmtE(kasseBestand().bestand)}</b></div>
       <p class="small muted">Umbuchungen und als „ignoriert“ markierte Umsätze sind nicht enthalten.</p></section>
   </div>`;
 }
@@ -133,14 +123,11 @@ function startHero() {
   const faellig = meine.filter(t => todoDue(t) && todoDue(t) <= todayISO());
   const ueberA = S.rechnungen.filter(r => r.richtung === 'ausgang' && rStatus(r).key === 'ueberfaellig');
   const lief = S.rechnungen.filter(r => r.richtung === 'eingang' && ['offen', 'ueberfaellig'].includes(rStatus(r).key) && faelligAm(r) && faelligAm(r) <= addDays(todayISO(), 7));
-  const probs = S.rechnungen.filter(r => ['ueber', 'doppelt', 'teil'].includes(rStatus(r).key)).length;
   const kw = isoWeek(todayISO()), hebeKW = sum(S.hebebuehne.filter(x => kwKey(x.datum) === kwKey(todayISO())), x => x.stunden);
   const items = [
     faellig.length ? `<button class="hi-i" data-act="go" data-v="todos"><b>${faellig.length}</b> To-Do${faellig.length === 1 ? '' : 's'} fällig</button>` : `<span class="hi-i">${meine.length} offene To-Dos</span>`,
     ueberA.length ? `<button class="hi-i warn" data-act="go" data-v="ausgang" data-f="ueberfaellig"><b>${ueberA.length}</b> Kundenrechnung${ueberA.length === 1 ? '' : 'en'} überfällig · ${fmtE(sum(ueberA, r => rStatus(r).offen))}</button>` : '',
     lief.length ? `<button class="hi-i" data-act="go" data-v="eingang" data-f="offen"><b>${lief.length}</b> Lieferantenrechnung${lief.length === 1 ? '' : 'en'} in den nächsten 7 Tagen fällig</button>` : '',
-    probs ? `<button class="hi-i warn" data-act="go" data-v="abgleich"><b>${probs}</b> × falscher Betrag bezahlt</button>` : '',
-    S.kasse.length ? `<button class="hi-i" data-act="go" data-v="kasse">Kasse <b>${fmtE(kasseBestand().bestand)}</b></button>` : '',
     S.hebebuehne.length ? `<button class="hi-i" data-act="go" data-v="hebe">Hebebühne KW ${kw.w}: <b>${String(r2(hebeKW)).replace('.', ',')} h</b></button>` : ''
   ].filter(Boolean);
   return `<section class="hero"><div class="hero-ey">${esc(datum)}</div><h1>${gruss}${first ? ', <span>' + esc(first) + '</span>' : ''}.</h1>
@@ -238,6 +225,11 @@ function filterR(list, f) {
 }
 const textOf = r => [r.nummer, r.partner, r.kundennr, r.kennzeichen, r.beschreibung, r.kostenart, r.unterkonto, r.art, r.notiz, r.brutto, fmtE(r.brutto), fmtD(r.datum)].join(' ').toLowerCase();
 function chips(view, opts) { return `<div class="chips">${opts.map(([k, l]) => `<button class="chip ${UI.filt[view] === k ? 'on' : ''}" data-act="filt" data-v="${view}" data-f="${k}">${l}</button>`).join('')}</div>`; }
+// Filter als Auswahlliste statt vieler Knöpfe
+function filtSel(view, opts) {
+  const cur = UI.filt[view], hat = opts.some(([k]) => k === cur);
+  return `<select class="inp filtsel" data-chg="filt" data-v="${view}" aria-label="Anzeigen">${hat ? '' : `<option value="${esc(cur || '')}" selected>${esc(cur || 'Alle')}</option>`}${opts.map(([k, l]) => `<option value="${esc(k)}" ${cur === k ? 'selected' : ''}>${esc(String(l).replace(/<[^>]+>/g, ''))}</option>`).join('')}</select>`;
+}
 function searchIn(view, ph) { return `<input class="inp search" type="search" placeholder="${ph}" value="${esc(UI.q[view] || '')}" data-q="${view}" aria-label="${ph}">`; }
 function moreBtn(view, n, lim) { return n > lim ? `<button class="btn sm more" data-act="more" data-v="${view}">Weitere ${Math.min(300, n - lim)} von ${n - lim} anzeigen</button>` : ''; }
 
@@ -351,16 +343,15 @@ function viewRechnungen(dir) {
     <button class="btn" data-act="auto" title="Neue Rechnungen, Bankbuchungen, SumUp und Kasse nochmal gegeneinander abgleichen">⟳ Abgleichen</button>
     <button class="btn" data-act="neuR" data-dir="${dir}">＋ Von Hand</button>
     <button class="btn" data-act="csv" data-v="${view}">CSV</button></div>
-  ${!isA ? `<div class="dropzone" data-act="pickBeleg" role="button" tabindex="0"><b>Rechnungen hierher ziehen</b><span>PDF, Foto oder die ganze E-Mail aus Outlook – auch mehrere auf einmal. ${DB.aiOn ? 'Die KI liest Lieferant, Nummer, Beträge und Kostenart aus.' : '(Auslesen per KI nur in der Online-Version.)'}</span></div>` : ''}
   ${DUP.size ? `<div class="warn">⚠ ${DUP.size} Rechnungen sehen doppelt erfasst aus${dupN ? ` – ${dupN} sicher (gleiche Firma, Nummer, Betrag und Datum)` : ''}${dupW ? `${dupN ? ',' : ' –'} ${dupW} wahrscheinlich (gleiche Firma, Betrag und Datum, eine ohne Rechnungsnummer)` : ''}. <a href="#" data-act="filt" data-v="${view}" data-f="dup">Anzeigen</a>, den überzähligen Eintrag öffnen und löschen. Ist es doch keine Doppelung, in die Notiz „kein Duplikat“ schreiben – dann verschwindet die Markierung.</div>` : ''}
-  <div class="filters">${chips(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
+  <div class="filters">${filtSel(view, chipOpts)}${searchIn(view, isA ? 'Nr., Kunde, Kennzeichen, Betrag …' : 'Lieferant, Nr., Kostenart, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
     const t = [['Werkstatt', s('lohn')], ['Ersatzteile', s('teile')], ['Sonstiges', s('sonstiges')], ['Altteile', s('altteile')], ['Dl.Posten', s('durchlaufend')], ['MwSt.', s('mwst')], ['davon USt. Altteile', s('ust_alt')], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
   : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
-    const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Durchl. Posten', s('durchlaufend')], ['Skonto', sum(l2, x => Math.abs(x.r.skonto || 0))], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
+    const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
   <div class="tw"><table class="tb click">${colHead(view, cols, base)}<tbody>
   ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}" class="${r.geprueft ? '' : 'unchecked'}">

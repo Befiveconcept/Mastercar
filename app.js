@@ -268,6 +268,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const c = e.target.dataset && e.target.dataset.chg; if (!c) return;
   if (c === 'period') { UI.period = e.target.value; render(); }
+  if (c === 'filt') { const v = e.target.dataset.v; UI.filt[v] = e.target.value; UI.more[v] = 0; render(); }
   if (c === 'theme') themeSetzen(e.target.checked ? 'light' : 'dark');
   if (c === 'colF') { const d = e.target.dataset, st = UI.cs[d.v] = UI.cs[d.v] || {}; st.f = st.f || {}; st.f[d.k] = e.target.value; UI.more[d.v] = 0; render(); }
   if (c === 'ziel') { DB.setSetting('zahlungsziel', Math.max(0, +e.target.value || 0)).then(render); }
