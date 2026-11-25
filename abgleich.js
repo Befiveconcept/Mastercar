@@ -580,6 +580,9 @@ async function autoAbgleich() {
   if (nAvis2) buildIdx();
   const nVerr = await verrechnungAusZweck().catch(e => { console.warn(e); return 0; });
   if (nVerr) buildIdx();
+  // Status aus der Liste („Offen“, „Mahnung“, „Abbuchung offen“ …) auf „Bezahlt“ setzen, wenn die Zahlung jetzt vollständig gefunden ist
+  const fertig = S.rechnungen.filter(r => !DOK_ARTEN.includes(r.art) && !istBezahltLaut(r.status_excel) && !istStornoLaut(r.status_excel) && ['bezahlt', 'verrechnet'].includes(rStatus(r).key));
+  if (fertig.length) { for (let i = 0; i < fertig.length; i += 10) await Promise.all(fertig.slice(i, i + 10).map(r => DB.update('rechnungen', r.id, { status_excel: 'Bezahlt' }))); buildIdx(); }
   return { verrechnet: nVerr, avis: nAvis + nAvis2, rueck: nRueck, n: newZ.length, links, excel: nExcel, hr: hrJobs.length, geteilt: zUpd.length };
 }
 

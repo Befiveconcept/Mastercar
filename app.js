@@ -68,8 +68,11 @@ function render() {
 const TW = { max: null, pos: {} };
 function twEnhance(root) {
   document.body.classList.toggle('tw-max-on', false);
-  $$('.tw', root).forEach((tw, i) => {
+  layoutLaden();
+  let nr = 0;   // gezählt werden nur echte Datentabellen (mit Spalten-Schlüsseln) – kleine Übersichten davor verschieben die Nummer nicht
+  $$('.tw', root).forEach(tw => {
     if (!tw.querySelector('thead') || tw.closest('.korb')) return;
+    const i = tw.querySelector('thead th[data-k]') ? nr++ : 'x' + nr;
     const key = (UI.view === 'guv' && UI.auswTab && UI.auswTab !== 'guv' ? 'ausw-' + UI.auswTab : UI.view) + ':' + i; tw.dataset.twk = key;   // jede Auswertung merkt sich ihre Spalten selbst
     const box = document.createElement('div'); box.className = 'twbox'; tw.before(box);
     box.innerHTML = `<div class="twbar"><button class="btn sm" data-tw="l" title="Nach links" aria-label="Nach links">◀</button><button class="btn sm" data-tw="r" title="Nach rechts" aria-label="Nach rechts">▶</button>
@@ -96,9 +99,20 @@ function twEnhance(root) {
 }
 window.addEventListener('mousemove', e => { const d = TW.drag; if (!d) return; const dx = e.clientX - d.sx; if (!d.bewegt && Math.abs(dx) > 6) { d.bewegt = true; d.tw.classList.add('ziehen'); } if (d.bewegt) { d.tw.scrollLeft = d.sl - dx; e.preventDefault(); } });
 window.addEventListener('mouseup', () => { const d = TW.drag; if (!d) return; TW.drag = null; d.tw.classList.remove('ziehen'); if (d.bewegt) { TW.nachZiehen = true; setTimeout(() => TW.nachZiehen = false, 0); } });
-/* Spalten-Reihenfolge je Tabelle (pro Browser gemerkt) + Namensspalte links fixieren */
+/* Spalten-Reihenfolge, ausgeblendete Spalten und Breiten je Tabelle: in der Cloud gespeichert (Einstellung „tabellen_layout“),
+   damit es auf jedem Gerät und für alle gleich aussieht; im Browser zusätzlich als Zwischenspeicher. */
 const SPALTEN = (() => { try { return JSON.parse(localStorage.getItem('mc-spalten')) || {}; } catch (e) { return {}; } })();
-function spaltenSpeichern() { try { localStorage.setItem('mc-spalten', JSON.stringify(SPALTEN)); } catch (e) { } }
+let LAYOUT_GELADEN = false, layoutT;
+function layoutLaden() {
+  if (LAYOUT_GELADEN || !S.user) return; LAYOUT_GELADEN = true;
+  // Rechnungsausgang: durch die Monatsübersicht hieß die Haupttabelle kurzzeitig „ausgang:1“ – jetzt wieder „ausgang:0“
+  [SPALTEN, SP_AUS, BREITEN].forEach(m => { if (m['ausgang:1'] && !m['ausgang:0']) { m['ausgang:0'] = m['ausgang:1']; delete m['ausgang:1']; } });
+  const l = S.einstellungen && S.einstellungen.tabellen_layout;
+  if (l && typeof l === 'object') { [[SPALTEN, l.spalten], [SP_AUS, l.aus], [BREITEN, l.breiten]].forEach(([ziel, q]) => { if (q && typeof q === 'object') { Object.keys(ziel).forEach(k => delete ziel[k]); Object.assign(ziel, q); } }); }
+  else if (Object.keys(SPALTEN).length || Object.keys(SP_AUS).length || Object.keys(BREITEN).length) layoutCloud();   // bisher nur im Browser → einmal hochladen
+}
+function layoutCloud() { clearTimeout(layoutT); layoutT = setTimeout(() => { if (S.user) DB.setSetting('tabellen_layout', { spalten: SPALTEN, aus: SP_AUS, breiten: BREITEN }).catch(e => console.warn(e)); }, 600); }
+function spaltenSpeichern() { try { localStorage.setItem('mc-spalten', JSON.stringify(SPALTEN)); } catch (e) { } layoutCloud(); }
 function twSpalten(tw, key, box) {
   const h = tw.querySelector('thead tr'); if (!h) return;
   const keys = [...h.children].map(th => th.dataset.k || ''), n = keys.length;
@@ -146,7 +160,7 @@ function twSpalten(tw, key, box) {
 }
 /* Spalten ein-/ausblenden (pro Tabelle und Browser gemerkt) */
 const SP_AUS = (() => { try { return JSON.parse(localStorage.getItem('mc-spalten-aus')) || {}; } catch (e) { return {}; } })();
-function spAusSpeichern() { try { localStorage.setItem('mc-spalten-aus', JSON.stringify(SP_AUS)); } catch (e) { } }
+function spAusSpeichern() { try { localStorage.setItem('mc-spalten-aus', JSON.stringify(SP_AUS)); } catch (e) { } layoutCloud(); }
 function spaltenMenue(btn, tw, key) {
   $('.sp-menu')?.remove();
   const h = tw.querySelector('thead tr'); if (!h) return;
@@ -162,7 +176,7 @@ function spaltenMenue(btn, tw, key) {
 }
 /* Spaltenbreite: am rechten Rand der Überschrift ziehen (Maus oder Finger), Doppelklick = wieder automatisch. Pro Tabelle gemerkt. */
 const BREITEN = (() => { try { return JSON.parse(localStorage.getItem('mc-breiten')) || {}; } catch (e) { return {}; } })();
-function breitenSpeichern() { try { localStorage.setItem('mc-breiten', JSON.stringify(BREITEN)); } catch (e) { } }
+function breitenSpeichern() { try { localStorage.setItem('mc-breiten', JSON.stringify(BREITEN)); } catch (e) { } layoutCloud(); }
 function spalteBreite(tw, idx, w) {
   tw.querySelectorAll('tr').forEach(tr => { const c = tr.children[idx]; if (!c || tr.children.length !== tw.querySelector('thead tr').children.length) return;
     if (w) { c.style.width = c.style.minWidth = c.style.maxWidth = w + 'px'; c.classList.add('fix-w'); } else { c.style.width = c.style.minWidth = c.style.maxWidth = ''; c.classList.remove('fix-w'); } });

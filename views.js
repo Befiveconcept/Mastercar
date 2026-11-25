@@ -329,14 +329,20 @@ function colHead(view, cols, base) {
     const v = UI.q[view + '|' + c.k] || '';
     return `<th><input class="cf ${v ? 'on' : ''}" type="search" data-q="${view}|${c.k}" value="${esc(v)}" placeholder="${c.num ? 'z. B. >100' : 'Filter'}" aria-label="Filter ${c.l}"></th>`;
   }).map((h, i) => h.replace('<th', `<th data-k="${cols[i].k}"`)).join('');
-  return `<thead><tr>${r1}</tr><tr class="frow">${fz}</tr></thead>`;
+  // Summenzeile unten: Summe aller Betragsspalten über ALLE gefilterten Einträge (nicht nur die angezeigten)
+  let foot = '';
+  if (cols.some(c => c.geld) && base.length) {
+    const l = colApply(view, base, cols), sx = c => r2(l.reduce((a, x) => a + (+c.v(x) || 0), 0));
+    foot = `<tfoot><tr class="sumfoot">${cols.map((c, i) => c.geld ? `<td class="num" data-k="${c.k}"><b>${fmtE(sx(c))}</b></td>` : i === 0 ? `<td data-k="${c.k}"><b>Σ ${l.length}</b></td>` : `<td data-k="${c.k}"></td>`).join('')}</tr></tfoot>`;
+  }
+  return `<thead><tr>${r1}</tr><tr class="frow">${fz}</tr></thead>${foot}`;
 }
 // Diese Spalte bleibt beim seitlichen Schieben links stehen (Kunde, Firma, Name, Partner …)
 const NAME_SPALTEN = ['kunde', 'lief', 'name', 'partner', 'beschr', 'text'];
 const colTxt = (k, l, f) => ({ k, l, v: x => f(x) || '' });
 const eur = v => v == null || v === '' || Math.abs(+v) < 0.005 ? '' : fmtE(v);   // leere/Null-Beträge wie in Excel leer lassen
 const colDat = (k, l, f) => ({ k, l, v: x => f(x) || '', t: x => f(x) ? fmtD(f(x)) + ' ' + f(x) : '' });
-const colNum = (k, l, f) => ({ k, l, num: true, v: x => { const v = f(x); return v == null || v === '' ? null : Number(v); }, t: x => { const v = f(x); return v == null || v === '' ? '' : fmtE(v) + ' ' + v; } });
+const colNum = (k, l, f) => ({ k, l, num: true, geld: true, v: x => { const v = f(x); return v == null || v === '' ? null : Number(v); }, t: x => { const v = f(x); return v == null || v === '' ? '' : fmtE(v) + ' ' + v; } });
 /* Alle Spalten des Blatts „Ein- und Ausgaben“ in Excel-Reihenfolge (berechnete wie Jahr/KW/tatsächl. werden hergeleitet) */
 const MONATE_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const fixTxt = r => r.fix === true ? 'Fix' : r.fix === false ? 'Variabel' : '';
@@ -362,9 +368,10 @@ function viewRechnungen(dir) {
   let list = S.rechnungen.filter(r => r.richtung === dir && r.art !== 'Mahnung' && (UI.period === 'alle' || inP(r.datum, range) || !['bezahlt', 'erledigt', 'extern', 'storno'].includes(rStatus(r).key))).map(r => ({ r, st: rStatus(r) }));
   // Filter: „Alle“, „Offen“ (alles nicht Bezahlte), dann jeder Status aus der Liste mit Anzahl, dazu überfällig/Abgleich-Probleme/ungeprüft
   const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
-  const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(dir === 'eingang' ? [['abb', 'noch Abbuchung offen'], ['manuell', 'noch manuell zu zahlen']] : [],stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
-    [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt']],
-    dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
+  // „Alles Offene“ und dann jeder Status aus der Liste (die eigenen Filter „noch Abbuchung offen / noch manuell zu zahlen“ wären doppelt)
+  const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene · ' + list.filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key)).length]].concat(stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
+    [['ueberfaellig', 'überfällig · ' + list.filter(x => x.st.key === 'ueberfaellig').length], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt · ' + list.filter(x => ['ueber', 'doppelt', 'teil'].includes(x.st.key)).length]],
+    dir === 'eingang' ? [['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   const DUP = rDoppelt(dir), dupN = [...DUP.values()].filter(d => d.sicher).length, dupW = DUP.size - dupN;
   if (DUP.size) chipOpts.push(['dup', '⚠ Doppelt? · ' + DUP.size]);
   const fsel = filtListe(view);
@@ -381,7 +388,7 @@ function viewRechnungen(dir) {
       { k: 'ea', l: 'Einn./Ausg.', v: x => (x.r.brutto || 0) < 0 ? 'Einnahme' : 'Ausgabe', sel: true }, { k: 'fix', l: 'Var./fix', v: x => fixTxt(x.r), sel: true },
       { k: 'ka', l: 'Kategorie', v: x => x.r.kostenart || '', sel: true }, { k: 'art', l: 'Art', v: x => x.r.art || '', sel: true }, COL.nr, { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true }];
   // Rechnungsausgang: alle Spalten des Werkstatt Journals (Reihenfolge wie dort) + was die App dazu weiß
-  if (isA) cols.push(colTxt('kd', 'Kd-Nr.', x => x.r.kundennr), { k: 'gep', l: 'Überprüft?', v: x => x.r.geprueft ? 'Ja' : 'Nein', sel: true }, { k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true },
+  if (isA) cols.push(colTxt('kd', 'Kd-Nr.', x => x.r.kundennr),{ k: 'za', l: 'Zahlart', v: x => ZA[x.r.zahlart] || '', sel: true },
     colNum('bezb', 'Bezahlt', x => x.r.bezahlt_betrag), colNum('brutto', 'Gesamt brutto', x => x.r.brutto), colNum('lohn', 'Werkstatt', x => x.r.lohn), colNum('teile', 'Ersatzteile', x => x.r.teile),
     colNum('sonst', 'Sonstiges', x => x.r.sonstiges), colNum('mwst', 'MwSt.', x => x.r.mwst), colNum('alt', 'Altteile', x => x.r.altteile), colNum('ustalt', 'USt.Alt.', x => x.r.ust_alt),
     colNum('dlp', 'Dl.Posten', x => x.r.durchlaufend), colNum('netto', 'Gesamt Netto', x => x.r.netto),
@@ -421,7 +428,7 @@ function viewRechnungen(dir) {
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
   <div class="tw"><table class="tb click">${colHead(view, cols, base)}<tbody>
   ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}">
-    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td>${esc(r.kundennr || '')}</td><td class="${r.geprueft ? 'x-gep-ja' : 'x-gep-nein'}">${r.geprueft ? 'Ja' : 'Nein'}</td><td>${esc(ZA[r.zahlart] || '')}</td>
+    ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td>${esc(r.kundennr || '')}</td><td>${esc(ZA[r.zahlart] || '')}</td>
       <td class="num">${eur(r.bezahlt_betrag)}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${eur(r.lohn)}</td><td class="num">${eur(r.teile)}</td><td class="num">${eur(r.sonstiges)}</td><td class="num">${eur(r.mwst)}</td>
       <td class="num">${eur(r.altteile)}</td><td class="num">${eur(r.ust_alt)}</td><td class="num">${eur(r.durchlaufend)}</td><td class="num">${eur(r.netto)}</td>
       <td>${r.datum ? MONATE_LANG[+r.datum.slice(5, 7) - 1] : ''}</td><td class="num">${r.datum ? isoWeek(r.datum).w : ''}</td><td>${r.datum ? 'Q' + Math.ceil(+r.datum.slice(5, 7) / 3) : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>
@@ -579,7 +586,7 @@ const dokOrdnerName = (n, max = 60) => String(n || '').trim().replace(/ä/g, 'ae
   .normalize('NFKD').replace(/[^\w .()&+,-]+/g, '_').replace(/\s+/g, ' ').slice(-max).trim();
 (() => { const s = document.createElement('style'); s.textContent = `.abl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0 16px}
 .abl-o{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);color:inherit;text-align:left;cursor:pointer;font:inherit}
-.abl-o:hover{border-color:var(--y)}.msel{position:relative}.msel>summary{list-style:none;cursor:pointer;white-space:nowrap}.msel>summary::-webkit-details-marker{display:none}
+.abl-o:hover{border-color:var(--y)}.tw tfoot td{position:sticky;bottom:0;z-index:2;background:var(--bg2);border-top:2px solid var(--line);white-space:nowrap}.msel{position:relative}.msel>summary{list-style:none;cursor:pointer;white-space:nowrap}.msel>summary::-webkit-details-marker{display:none}
 .msel-pop{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:260px;max-height:60vh;overflow:auto;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:2px}
 .msel-o{display:flex;gap:8px;align-items:center;padding:5px 6px;border-radius:8px;cursor:pointer;white-space:nowrap}.msel-o:hover{background:var(--y-soft)}.sum-klick{display:flex;flex-direction:column;align-items:flex-start;background:none;border:1px solid var(--y);border-radius:10px;padding:4px 10px;color:inherit;font:inherit;cursor:pointer}.sum-klick:hover{background:var(--y-soft)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
 const dokPrefix = pfad => 'ablage' + (pfad ? '/' + pfad : '');
