@@ -281,12 +281,20 @@ function vorschlaege(pay, kind) {
 }
 // Rechnungen/Gutschriften, deren Nummer (mind. 5 Zeichen) im Verwendungszweck vorkommt
 function belegeImZweck(pay) {
-  const z = String(pay.zweck || '').toUpperCase(), zz = z.replace(/[^A-Z0-9]+/g, '');
-  if (!z.trim()) return [];
-  return S.rechnungen.filter(r => { if (DOK_ARTEN.includes(r.art)) return false; const n = String(r.nummer || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
-    if (n.length < 5) return false;
-    // reine Ziffern: nicht Teil einer längeren Zahl · mit Buchstaben (R26-0628): zusammengeschrieben suchen, keine weitere Ziffer dahinter
-    return /^\d+$/.test(n) ? new RegExp('(^|\\D)' + n + '(\\D|$)').test(z) : new RegExp(n + '(\\D|$)').test(zz); });
+  const z = String(pay.zweck || '').toUpperCase(); if (!z.trim()) return [];
+  // Verzeichnis Nummer → Belege (einmal je Datenstand): reine Ziffern ohne führende Nullen bzw. Buchstaben+Ziffern zusammengeschrieben
+  if (!IDX.nrIdx || IDX.nrIdxN !== S.rechnungen.length) {
+    const m = new Map(); S.rechnungen.forEach(r => { if (DOK_ARTEN.includes(r.art)) return; let n = String(r.nummer || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+      if (/^\d+$/.test(n)) n = n.replace(/^0+/, ''); if (n.length < 5) return; (m.get(n) || m.set(n, []).get(n)).push(r); });
+    IDX.nrIdx = m; IDX.nrIdxN = S.rechnungen.length;
+  }
+  const keys = new Set();
+  (z.match(/\d{5,}/g) || []).forEach(d => keys.add(d.replace(/^0+/, '')));   // „001263015679“ = 1263015679, nicht Teil einer längeren Zahl
+  (z.replace(/[^A-Z0-9]+/g, '').match(/[A-Z]{1,4}\d{4,}/g) || []).forEach(k => { for (let i = 5; i <= k.length; i++) keys.add(k.slice(0, i)); });   // „R26-0628“ → R260628
+  const out = new Set(); keys.forEach(k => (IDX.nrIdx.get(k) || []).forEach(r => out.add(r)));
+  // Buchstaben-Nummern: keine weitere Ziffer direkt dahinter (R26-0628 ≠ R26-06281)
+  const zz = z.replace(/[^A-Z0-9]+/g, '');
+  return [...out].filter(r => { const n = String(r.nummer || '').toUpperCase().replace(/[^A-Z0-9]+/g, ''); return /^\d+$/.test(n) || new RegExp(n + '(\\D|$)').test(zz); });
 }
 
 /* ---------- Automatischer Abgleich ---------- */
@@ -567,7 +575,35 @@ async function autoAbgleich() {
   if (typeof avisAbgleich === 'function') await avisAbgleich().catch(e => console.warn(e));   // Avise, die erst jetzt ihre Abbuchung finden
   const nAvis2 = await avisZuordnen().catch(e => { console.warn(e); return 0; });
   if (nAvis2) buildIdx();
-  return { avis: nAvis + nAvis2, rueck: nRueck, n: newZ.length, links, excel: nExcel, hr: hrJobs.length, geteilt: zUpd.length };
+  const nVerr = await verrechnungAusZweck().catch(e => { console.warn(e); return 0; });
+  if (nVerr) buildIdx();
+  return { verrechnet: nVerr, avis: nAvis + nAvis2, rueck: nRueck, n: newZ.length, links, excel: nExcel, hr: hrJobs.length, geteilt: zUpd.length };
+}
+
+/* ---------- Verrechnung laut Verwendungszweck ----------
+   Stehen mehrere Beleg-Nummern im Verwendungszweck (Rechnungen und Gutschriften, z. B. KSR, RCW/Wolf Reifen) und ergeben ihre
+   offenen Beträge zusammen GENAU die Buchung, werden alle zugeordnet. Bisherige automatische Zuordnungen dieser Buchung werden ersetzt,
+   von Hand gesetzte bleiben – dann passiert hier nichts. */
+async function verrechnungAusZweck() {
+  buildIdx(); let n = 0;
+  const offenVon = (r, bid) => { const s = rStatus(r); const fremd = sum((IDX.zByR.get(r.id) || []).filter(z => z.bank_id !== bid), z => z.betrag);
+    if (s.key === 'verrechnet' || s.key === 'storno' || s.key === 'erledigt') return 0;
+    return r2(sollOf(r) - fremd); };   // was nach Abzug anderer Zahlungen noch auf diese Buchung entfallen kann
+  for (const b of S.bank) {
+    if (b.art || !b.zweck) continue;
+    const zs = IDX.zByB.get(b.id) || []; if (zs.some(z => z.art !== 'auto')) continue;
+    const l = belegeImZweck(b); if (!l.length) continue;
+    const posten = l.map(r => ({ r, o: offenVon(r, b.id) })).filter(x => Math.abs(x.o) > 0.005);
+    if (!posten.length || (posten.length === 1 && zs.length)) continue;   // ein einzelner Beleg nur bei noch freier Buchung
+    const fluss = r2(sum(posten, x => (x.r.richtung === 'eingang' ? -1 : 1) * x.o));
+    if (Math.abs(fluss - b.betrag) > 0.01) continue;
+    // schon genau so zugeordnet?
+    if (zs.length === posten.length && posten.every(x => zs.some(z => z.rechnung_id === x.r.id && Math.abs(z.betrag - x.o) <= 0.01))) continue;
+    if (zs.length) await DB.remove('zuordnungen', zs.map(z => z.id));
+    await DB.insert('zuordnungen', posten.map(x => ({ rechnung_id: x.r.id, bank_id: b.id, betrag: x.o, art: 'auto', datum: b.datum, notiz: `Verrechnung laut Verwendungszweck (${posten.length} Belege)` })));
+    buildIdx(); n++;
+  }
+  return n;
 }
 
 /* ---------- Zahlungsavis → Zuordnungen ----------
