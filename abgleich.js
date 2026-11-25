@@ -273,8 +273,20 @@ function vorschlaege(pay, kind) {
   buildIdx();
   const richtung = kind === 'sumup' ? 'ausgang' : (pay.betrag >= 0 ? 'ausgang' : 'eingang');
   const restPay = kind === 'bank' ? bStatus(pay).rest : kind === 'kasse' ? kStatus(pay).rest : sStatus(pay).rest;
-  return S.rechnungen.filter(r => r.richtung === richtung).map(r => { const st = rStatus(r); const sc = score(pay, r, restPay, st.offen); return { r, st, ...sc }; })
+  const l = S.rechnungen.filter(r => r.richtung === richtung).map(r => { const st = rStatus(r); const sc = score(pay, r, restPay, st.offen); return { r, st, ...sc }; })
     .filter(x => x.s >= 25).sort((a, b) => b.s - a.s).slice(0, 8);
+  // Belege, deren Nummer im Verwendungszweck steht – auch Gutschriften und Rechnungen der Gegenrichtung (Verrechnung) – immer zuerst
+  const imZweck = belegeImZweck(pay).filter(r => !l.some(x => x.r.id === r.id)).map(r => ({ r, st: rStatus(r), s: 95, why: ['Nr. im Verwendungszweck'], imZweck: true }));
+  return [...imZweck, ...l];
+}
+// Rechnungen/Gutschriften, deren Nummer (mind. 5 Zeichen) im Verwendungszweck vorkommt
+function belegeImZweck(pay) {
+  const z = String(pay.zweck || '').toUpperCase(), zz = z.replace(/[^A-Z0-9]+/g, '');
+  if (!z.trim()) return [];
+  return S.rechnungen.filter(r => { if (DOK_ARTEN.includes(r.art)) return false; const n = String(r.nummer || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    if (n.length < 5) return false;
+    // reine Ziffern: nicht Teil einer längeren Zahl · mit Buchstaben (R26-0628): zusammengeschrieben suchen, keine weitere Ziffer dahinter
+    return /^\d+$/.test(n) ? new RegExp('(^|\\D)' + n + '(\\D|$)').test(z) : new RegExp(n + '(\\D|$)').test(zz); });
 }
 
 /* ---------- Automatischer Abgleich ---------- */
