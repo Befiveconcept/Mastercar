@@ -184,11 +184,14 @@ function zweckKurz(s) {
   const out = svwz || rest || (teile.ABWA || '').trim();
   return out.replace(/\bNOTPROVIDED\b/g, '').replace(/\s*SecureGo\s*plus\s*$/i, '').replace(/\s+/g, ' ').trim() || t;
 }
+// Bankbewegungen, die weder Kosten noch Erlöse sind (Darlehen aufnehmen/tilgen, Vorjahr, Rücklastschrift-Paare, Privat, Umbuchung …)
+const bankNeutral = b => ['privat', 'intern', 'ignoriert', 'vorjahr', 'darlehen'].includes(b.art)
+  || (!(IDX.zByB.get(b.id) || []).length && ['darlehen', 'vorjahr', 'rueck'].includes(IDX.bArt && IDX.bArt.get(b.id)));
 const zRichtung = z => { const r = (IDX.rById && IDX.rById.get(z.rechnung_id)) || S.rechnungen.find(x => x.id === z.rechnung_id); return r && r.richtung === 'eingang' ? -1 : 1; };
 const zFluss = z => zRichtung(z) * (+z.betrag || 0);   // + = Geld kommt rein, − = Geld geht raus
 const B_ST = {
   offen: ['Nicht zugeordnet', 'st-open'], zugeordnet: ['Zugeordnet', 'st-ok'], teilweise: ['Teilweise zugeordnet', 'st-warn'], sumup: ['SumUp-Auszahlung', 'st-info'],
-  privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], vorjahr: ['Gehört zu 2025', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
+  privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], vorjahr: ['Gehört zu 2025', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
 };
 function bStatus(b) {
   // Verrechnung: eine Buchung kann Rechnungen UND Gutschriften abdecken (z. B. Altteile-Gutschriften minus Rechnungen).

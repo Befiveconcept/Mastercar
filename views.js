@@ -29,7 +29,7 @@ const ZA = { bank: 'Überweisung', sepa: 'SEPA-Lastschrift', ec: 'EC / SumUp', b
 function kennzahlen(range) {
   const aus = S.rechnungen.filter(r => r.richtung === 'ausgang' && inP(r.datum, range));
   const ein = S.rechnungen.filter(r => r.richtung === 'eingang' && inP(r.datum, range));
-  const bankKosten = S.bank.filter(b => b.betrag < 0 && inP(b.datum, range) && !['privat', 'intern', 'ignoriert', 'vorjahr'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length);
+  const bankKosten = S.bank.filter(b => b.betrag < 0 && inP(b.datum, range) && !['privat', 'intern', 'ignoriert', 'vorjahr'].includes(b.art) && !(IDX.zByB.get(b.id) || []).length && !bankNeutral(b));
   // netto wie in der Excel-Mappe (ohne durchlaufende Posten); Gutschriften mindern die Kosten
   const einnahmen = sum(aus, nettoA), einNetto = einnahmen, einBrutto = sum(aus, r => r.brutto);
   const ausgaben = sum(ein, nettoE), bankOhne = sum(bankKosten, b => -b.betrag);
