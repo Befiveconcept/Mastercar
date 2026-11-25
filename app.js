@@ -199,7 +199,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && TW.max && 
 /* ---------- Aktionen (data-act) ---------- */
 Object.assign(A, {
   menu: () => { const on = document.body.classList.toggle('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', on); },
-  go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f; if (d.t) UI.auswTab = d.t; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
+  go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f;
+    if (d.v === 'ausgang' && UI.cs.ausgang) { UI.cs.ausgang.k = null; UI.cs.ausgang.d = null; } /* beim Öffnen immer neueste Rechnung oben */ if (d.t) UI.auswTab = d.t; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
@@ -224,6 +225,7 @@ Object.assign(A, {
   },
   korbGo: () => korbVerarbeiten(),
   offeneListe: () => offeneListe(),
+  offeneZeigen: () => { UI.filt.ausgang = 'offen'; UI.cs.ausgang = { ...(UI.cs.ausgang || {}), k: 'datum', d: 'asc' }; UI.more.ausgang = 0; render(); },
   // Ablage
   ablGo: d => { UI.abl = d.p || ''; UI.q.ablage = ''; render(); window.scrollTo(0, 0); },
   ablOeffnen: async d => { const w = window.open('', '_blank'); try { const u = await DB.fileUrl(d.f); if (w) w.location = u; else location.href = u; } catch (e) { w?.close(); toast('Datei nicht geöffnet: ' + e.message); } },

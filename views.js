@@ -375,8 +375,8 @@ function viewRechnungen(dir) {
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Rechnungen · Summe ${fmtE(tot)} · offen ${fmtE(offen)}${!isA && offen > 0.005 ? ` (noch Abbuchung ${fmtE(sum(list.filter(x => istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))} · noch manuell ${fmtE(sum(list.filter(x => !istAbbuchung(x.r)), x => Math.max(0, x.st.offen)))})` : ''}<span class="muted small">(offene aus früheren Zeiträumen werden immer angezeigt)</span>${colReset(view)}</div>
   ${isA ? (() => { const s = f => sum(list.filter(x => !x.r.erledigt), x => x.r[f]);   // Summen wie unten im Werkstatt Journal (ohne Stornos), passen sich jedem Filter an
-    const t = [['Offene Rechnungen', offen], ['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
-    return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
+    const t = [['Gesamt Netto', s('netto')], ['Gesamt brutto', s('brutto')]];
+    return `<div class="sumrow"><button class="sum-klick" data-act="offeneZeigen" title="Nur offene Rechnungen anzeigen, älteste oben"><small>Offene Rechnungen ›</small><b>${fmtE(offen)}</b></button>${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()
   : (() => { const l2 = list.filter(x => !DOK_ARTEN.includes(x.r.art)), s = f => sum(l2, x => x.r[f]);
     const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
@@ -392,7 +392,7 @@ function viewRechnungen(dir) {
       <td class="num">${fmtE(r.brutto)}</td><td class="num">${r.skonto ? fmtE(Math.abs(r.skonto)) : ''}</td><td class="num">${r.durchlaufend ? fmtE(r.durchlaufend) : ''}</td><td class="num">${r.netto != null ? fmtE(r.netto) : ''}</td>
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
-    <td class="verk ${(() => { const q = zahlQuelle(r); return /bank/i.test(q) ? 'x-vk-bank' : q === 'keine' ? 'x-vk-keine' : /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
+    <td class="verk ${(() => { const q = zahlQuelle(r); return /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
     <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
@@ -534,7 +534,7 @@ const dokOrdnerName = (n, max = 60) => String(n || '').trim().replace(/ä/g, 'ae
   .normalize('NFKD').replace(/[^\w .()&+,-]+/g, '_').replace(/\s+/g, ' ').slice(-max).trim();
 (() => { const s = document.createElement('style'); s.textContent = `.abl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0 16px}
 .abl-o{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);color:inherit;text-align:left;cursor:pointer;font:inherit}
-.abl-o:hover{border-color:var(--y)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
+.abl-o:hover{border-color:var(--y)}.sum-klick{display:flex;flex-direction:column;align-items:flex-start;background:none;border:1px solid var(--y);border-radius:10px;padding:4px 10px;color:inherit;font:inherit;cursor:pointer}.sum-klick:hover{background:var(--y-soft)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
 const dokPrefix = pfad => 'ablage' + (pfad ? '/' + pfad : '');
 const dokName = n => String(n || '').replace(/^\d{10,}_/, '');   // Zeitstempel vorne ausblenden
 async function dokLaden(pfad, neu) {
