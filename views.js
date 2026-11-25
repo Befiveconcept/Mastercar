@@ -332,7 +332,7 @@ function viewRechnungen(dir) {
   // Filter: „Alle“, „Offen“ (alles nicht Bezahlte), dann jeder Status aus der Liste mit Anzahl, dazu überfällig/Abgleich-Probleme/ungeprüft
   const cnt = {}; list.forEach(x => { const k = DOK_ARTEN.includes(x.r.art) ? 'art:' + x.r.art : x.st.label; cnt[k] = (cnt[k] || 0) + 1; });
   const chipOpts = [['alle', 'Alle'], ['offen', 'Alles Offene']].concat(dir === 'eingang' ? [['abb', 'noch Abbuchung offen'], ['manuell', 'noch manuell zu zahlen']] : [],stListe(dir).filter(s => cnt[s]).map(s => ['s:' + s, s + ' · ' + cnt[s]]),
-    [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt'], ['pruefen', 'nicht geprüft']],
+    [['ueberfaellig', 'überfällig'], ['probleme', 'Abgleich: zu viel / zu wenig / doppelt']],
     dir === 'eingang' ? [['art:Mahnung', '⚠ Mahnschreiben · ' + (cnt['art:Mahnung'] || 0)], ['avis', '📨 mit Zahlungsavis · ' + list.filter(x => avisZu(x.r.id).length).length]] : []);
   const DUP = rDoppelt(dir), dupN = [...DUP.values()].filter(d => d.sicher).length, dupW = DUP.size - dupN;
   if (DUP.size) chipOpts.push(['dup', '⚠ Doppelt? · ' + DUP.size]);
@@ -381,7 +381,7 @@ function viewRechnungen(dir) {
     const t = [['Netto', s('netto')], ['MwSt.', s('mwst')], ['Brutto', s('brutto')], ['davon fix', sum(l2.filter(x => x.r.fix), x => x.r.netto)], ['davon variabel', sum(l2.filter(x => x.r.fix === false), x => x.r.netto)]];
     return `<div class="sumrow">${t.map(([l, v]) => `<span><small>${l}</small><b>${fmtE(v)}</b></span>`).join('')}</div>`; })()}
   <div class="tw"><table class="tb click">${colHead(view, cols, base)}<tbody>
-  ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}" class="${r.geprueft ? '' : 'unchecked'}">
+  ${list.slice(0, lim).map(({ r, st }) => `<tr data-act="rechnung" data-id="${r.id}">
     ${isA ? `<td class="mono">${esc(r.nummer || '–')}</td><td>${fmtD(r.datum)}</td><td>${esc(r.partner || '')}</td><td>${esc(r.kundennr || '')}</td><td class="${r.geprueft ? 'x-gep-ja' : 'x-gep-nein'}">${r.geprueft ? 'Ja' : 'Nein'}</td><td>${esc(ZA[r.zahlart] || '')}</td>
       <td class="num">${eur(r.bezahlt_betrag)}</td><td class="num">${fmtE(r.brutto)}</td><td class="num">${eur(r.lohn)}</td><td class="num">${eur(r.teile)}</td><td class="num">${eur(r.sonstiges)}</td><td class="num">${eur(r.mwst)}</td>
       <td class="num">${eur(r.altteile)}</td><td class="num">${eur(r.ust_alt)}</td><td class="num">${eur(r.durchlaufend)}</td><td class="num">${eur(r.netto)}</td>
@@ -393,7 +393,7 @@ function viewRechnungen(dir) {
       <td>${jaNein(r.mwst_pflicht != null ? r.mwst_pflicht : Math.abs(r.mwst || 0) > 0.005)}</td>
       <td class="num">${st.bezahlt ? fmtE(st.bezahlt) : ''}</td><td class="num ${st.offen > 0.01 ? 'neg' : ''}">${Math.abs(st.offen) > 0.01 ? fmtE(st.offen) : ''}</td><td>${r.datei ? '📄' : ''}</td><td class="small zweck">${esc(r.notiz || '')}</td>`}
     <td class="verk ${(() => { const q = zahlQuelle(r); return /ohne Zuordnung/.test(q) ? 'x-vk-warn' : ''; })()}" title="${esc(verkTxt(r))}">${verkKurz(r)}</td>
-    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${r.geprueft ? '' : ' ' + badge({ cls: 'st-ai', label: 'nicht geprüft' })}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
+    <td class="st-td x-${st.cls}">${stSelect(r)}${st.hint ? ` <span class="badge ${st.hint[1]} hint">${esc(st.hint[0])}</span>` : ''}${(() => { const d = DUP.get(r.id); return d ? ` <span class="badge ${d.sicher ? 'st-bad' : 'st-warn'}" title="${esc('Gleicher Eintrag: ' + d.mit.map(x => (x.nummer || 'ohne Nr.') + ' · ' + fmtD(x.datum) + ' · ' + fmtE(x.brutto) + (x.status_excel ? ' · ' + x.status_excel : '')).join(' | '))}">${d.sicher ? 'doppelt' : 'doppelt?'}</span>` : ''; })()}</td></tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty">Keine Rechnungen${UI.filt[view] !== 'alle' || q ? ' für diesen Filter' : ''}.</td></tr>`}
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 
