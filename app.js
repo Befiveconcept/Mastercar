@@ -58,6 +58,7 @@ function render() {
     if (omniFocus) $('#oq').focus();
   }
   twEnhance(main);
+  $$('details.cfm[open]', main).forEach(cfmPos);
   if (qv) { const i = $(`[data-q="${qv}"]`); if (i) { i.focus({ preventScroll: true }); i.setSelectionRange(pos, pos); } }
   window.scrollTo(0, y);
 }
@@ -201,6 +202,12 @@ function twBreiten(tw, key, h) {
     g.addEventListener('dragstart', e => { e.preventDefault(); e.stopPropagation(); });
   });
 }
+// Spaltenfilter-Liste (Häkchen) liegt über der Tabelle, damit sie in der Scroll-Box nicht abgeschnitten wird
+function cfmPos(d) {
+  const p = d.querySelector('.msel-pop'), s = d.querySelector('summary'); if (!p || !s) return;
+  const r = s.getBoundingClientRect(); p.style.left = Math.max(8, Math.min(r.left, innerWidth - 290)) + 'px';
+  const unten = innerHeight - r.bottom; p.style.top = (unten > 260 ? r.bottom + 4 : Math.max(8, r.top - Math.min(p.offsetHeight || 300, innerHeight * 0.6) - 4)) + 'px';
+}
 function twPfeile(box, tw) {
   const breit = tw.scrollWidth > tw.clientWidth + 2;
   box.classList.toggle('breit', breit);
@@ -310,6 +317,11 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const c = e.target.dataset && e.target.dataset.chg; if (!c) return;
   if (c === 'period') { UI.period = e.target.value; render(); }
+  if (c === 'colFM') {   // Spaltenfilter mit Mehrfachauswahl; „Alle“ hebt alles auf, die Liste bleibt offen
+    const d = e.target.dataset, st = UI.cs[d.v] = UI.cs[d.v] || {}; st.f = st.f || {}; let l = cfListe(st, d.k);
+    l = !d.o ? [] : e.target.checked ? [...new Set(l.concat(d.o))] : l.filter(x => x !== d.o);
+    st.f[d.k] = l; UI.more[d.v] = 0; UI.mselAuf = { ...(UI.mselAuf || {}), ['cf:' + d.v + ':' + d.k]: true }; render();
+  }
   if (c === 'filtM') {   // Mehrfach-Filter: Häkchen setzen/entfernen; „Alle“ hebt alles auf. Liste bleibt offen.
     const v = e.target.dataset.v, k = e.target.dataset.k; let sel = filtListe(v);
     if (k === 'alle') sel = []; else sel = e.target.checked ? [...new Set(sel.concat(k))] : sel.filter(x => x !== k);
@@ -343,6 +355,7 @@ let qT; document.addEventListener('input', e => { const v = e.target.dataset && 
 document.addEventListener('toggle', e => {
   const d = e.target;
   if (d.matches && d.dataset && d.dataset.auf) { UI.auf = { ...(UI.auf || {}), [d.dataset.auf]: d.open }; return; }   // aufgeklappte Übersichten merken
+  if (d.matches && d.matches('details.cfm') && d.open) cfmPos(d);
   if (d.matches && d.matches('details.msel')) { UI.mselAuf = { ...(UI.mselAuf || {}), [d.dataset.msel]: d.open }; return; } if (!d.matches || !d.matches('details.abg')) return;
   UI.abgOpen = UI.abgOpen || {}; UI.abgOpen[d.dataset.abg] = d.open;
   if (d.open && !d.querySelector('.tw, .empty')) { const y = window.scrollY; render(); window.scrollTo(0, y); }

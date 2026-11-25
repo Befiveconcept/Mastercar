@@ -304,7 +304,7 @@ function colApply(view, list, cols) {
   const st = UI.cs[view] || {};
   cols.forEach(c => {
     if (c.nof) return;
-    if (c.sel) { const f = st.f && st.f[c.k]; if (f != null && f !== '') list = list.filter(x => colT(c, x) === f); return; }
+    if (c.sel) { const f = cfListe(st, c.k); if (f.length) list = list.filter(x => f.includes(colT(c, x))); return; }   // Mehrfachauswahl: alles, was zu einem der Werte passt
     const q = (UI.q[view + '|' + c.k] || '').toLowerCase().trim(); if (q) list = list.filter(x => colMatch(c, x, q));
   });
   const c = st.k && cols.find(c => c.k === st.k);
@@ -316,7 +316,8 @@ function colApply(view, list, cols) {
   }
   return list;
 }
-function colAktiv(view) { const st = UI.cs[view] || {}; return !!(st.k || Object.values(st.f || {}).some(Boolean) || Object.keys(UI.q).some(k => k.startsWith(view + '|') && UI.q[k])); }
+const cfListe = (st, k) => [].concat((st.f && st.f[k]) ?? []).filter(v => v != null && v !== '');   // Spaltenfilter: früher ein Wert, jetzt Liste
+function colAktiv(view) { const st = UI.cs[view] || {}; return !!(st.k || Object.keys(st.f || {}).some(k => cfListe(st, k).length) || Object.keys(UI.q).some(k => k.startsWith(view + '|') && UI.q[k])); }
 // base = Liste vor den Spaltenfiltern (für die Auswahllisten)
 function colHead(view, cols, base) {
   const st = UI.cs[view] || {};
@@ -324,8 +325,13 @@ function colHead(view, cols, base) {
   const r1 = cols.map(c => `<th class="srt ${c.num ? 'num' : ''} ${st.k === c.k ? 'on' : ''}" data-act="colSort" data-v="${view}" data-k="${c.k}"${nm(c)} title="Klick = sortieren · Ziehen = Spalte verschieben">${c.l}<span class="sa">${st.k === c.k ? (st.d === 'desc' ? '▼' : '▲') : '↕'}</span></th>`).join('');
   const fz = cols.map(c => {
     if (c.nof) return '<th></th>';
-    if (c.sel) { const f = (st.f && st.f[c.k]) || '', opts = [...new Set(base.map(x => colT(c, x)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
-      return `<th><select class="cf ${f ? 'on' : ''}" data-chg="colF" data-v="${view}" data-k="${c.k}" aria-label="Filter ${c.l}"><option value="">Alle</option>${opts.map(o => `<option value="${esc(o)}" ${o === f ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></th>`; }
+    if (c.sel) { const f = cfListe(st, c.k), opts = [...new Set(base.map(x => colT(c, x)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
+      const anz = o => base.filter(x => colT(c, x) === o).length, mk = 'cf:' + view + ':' + c.k, auf = UI.mselAuf && UI.mselAuf[mk];
+      const titel = !f.length ? 'Alle' : f.length === 1 ? f[0] : f.length + ' gewählt';
+      // Mehrfachauswahl mit Häkchen (z. B. Status „Mahnung“ + „2. Mahnung“ + „3. Mahnung“ gleichzeitig)
+      return `<th><details class="msel cfm" data-msel="${esc(mk)}" ${auf ? 'open' : ''}><summary class="cf ${f.length ? 'on' : ''}" aria-label="Filter ${c.l}">${esc(titel)} ▾</summary><div class="msel-pop">
+        <label class="msel-o"><input type="checkbox" data-chg="colFM" data-v="${view}" data-k="${c.k}" data-o="" ${f.length ? '' : 'checked'}> Alle</label>
+        ${opts.map(o => `<label class="msel-o"><input type="checkbox" data-chg="colFM" data-v="${view}" data-k="${c.k}" data-o="${esc(o)}" ${f.includes(o) ? 'checked' : ''}> ${esc(o)} <small class="muted">${anz(o)}</small></label>`).join('')}</div></details></th>`; }
     const v = UI.q[view + '|' + c.k] || '';
     return `<th><input class="cf ${v ? 'on' : ''}" type="search" data-q="${view}|${c.k}" value="${esc(v)}" placeholder="${c.num ? 'z. B. >100' : 'Filter'}" aria-label="Filter ${c.l}"></th>`;
   }).map((h, i) => h.replace('<th', `<th data-k="${cols[i].k}"`)).join('');
@@ -588,6 +594,7 @@ const dokOrdnerName = (n, max = 60) => String(n || '').trim().replace(/ä/g, 'ae
 .abl-o{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2);color:inherit;text-align:left;cursor:pointer;font:inherit}
 .abl-o:hover{border-color:var(--y)}.tw tfoot td{position:sticky;bottom:0;z-index:2;background:var(--bg2);border-top:2px solid var(--line);white-space:nowrap}.msel{position:relative}.msel>summary{list-style:none;cursor:pointer;white-space:nowrap}.msel>summary::-webkit-details-marker{display:none}
 .msel-pop{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:260px;max-height:60vh;overflow:auto;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:2px}
+.cfm>summary{display:block;max-width:170px;overflow:hidden;text-overflow:ellipsis;font-weight:400}.cfm .msel-pop{position:fixed;z-index:60;font-weight:400;text-transform:none;letter-spacing:0}
 .msel-o{display:flex;gap:8px;align-items:center;padding:5px 6px;border-radius:8px;cursor:pointer;white-space:nowrap}.msel-o:hover{background:var(--y-soft)}.sum-klick{display:flex;flex-direction:column;align-items:flex-start;background:none;border:1px solid var(--y);border-radius:10px;padding:4px 10px;color:inherit;font:inherit;cursor:pointer}.sum-klick:hover{background:var(--y-soft)}.abl-o b{word-break:break-word}.abl-i{font-size:26px;line-height:1}.abl-pfad{margin:4px 0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}.nowrap{white-space:nowrap}`; document.head.appendChild(s); })();
 const dokPrefix = pfad => 'ablage' + (pfad ? '/' + pfad : '');
 const dokName = n => String(n || '').replace(/^\d{10,}_/, '');   // Zeitstempel vorne ausblenden
