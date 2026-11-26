@@ -19,6 +19,16 @@ function ibanVorschlag(r) {
 }
 const ibanSchoen = s => String(s || '').replace(/\s/g, '').toUpperCase().replace(/(.{4})/g, '$1 ').trim();
 const zweckVon = r => [r.nummer ? 'Rechnung ' + r.nummer : 'Rechnung vom ' + fmtD(r.datum), r.kundennr ? 'Kd-Nr. ' + r.kundennr : ''].filter(Boolean).join(' ').slice(0, 140);
+/* Sammelüberweisung: Verwendungszweck mit allen Rechnungsnummern (max. 140 Zeichen, sonst gekürzt) */
+function zweckSammel(rs) {
+  if (rs.length === 1) return zweckVon(rs[0]);
+  const nrn = rs.map(r => r.nummer || 'vom ' + fmtD(r.datum)), kd = rs.find(r => r.kundennr), ende = kd ? ' Kd-Nr. ' + kd.kundennr : '';
+  let t = 'Rechnungen ' + nrn.join(', ');
+  if ((t + ende).length > 140) { t = 'Rg. ' + nrn.join(' '); if ((t + ende).length > 140) t = t.slice(0, 140 - ende.length - 2) + ' …'; }
+  return (t + ende).slice(0, 140);
+}
+// gehören zwei Rechnungen zum selben Empfänger? (gleiche IBAN oder gleiches erstes Namenswort)
+const gleicherEmpf = (a, b) => { const ia = ibanVorschlag(a), ib = ibanVorschlag(b); if (ia && ib) return ia.iban.replace(/\s/g, '') === ib.iban.replace(/\s/g, ''); return (nameTokens(a.partner || '')[0] || 'a') === (nameTokens(b.partner || '')[0] || 'b'); };
 // EPC-QR (GiroCode) – wird von fast allen deutschen Banking-Apps gelesen
 const girocode = (name, iban, betrag, zweck) => ['BCD', '002', '1', 'SCT', '', String(name).slice(0, 70), String(iban).replace(/\s/g, ''), 'EUR' + Number(betrag).toFixed(2), '', '', String(zweck).slice(0, 140)].join('\n');
 
@@ -37,32 +47,49 @@ async function kopieren(text, was) {
 function bezahlenAnsicht() {
   const list = zuZahlen(), heute = todayISO();
   const feld = (label, wert, was, mono) => `<div class="pz-f"><span>${label}</span><button class="pz-c ${mono ? 'mono' : ''}" data-copy="${esc(wert)}" data-was="${esc(was)}" title="Klicken zum Kopieren">${esc(wert) || '<i class="muted">fehlt</i>'}<b>⧉</b></button></div>`;
-  const karte = ({ r, st, faellig }) => {
-    const ib = ibanVorschlag(r), betrag = r2(st.offen), zweck = zweckVon(r), spaet = faellig && faellig < heute;
-    return `<article class="pz ${spaet ? 'spaet' : ''}" data-rid="${r.id}">
-      <header><div><b>${esc(r.partner || '–')}</b> <span class="muted small">· ${esc(r.art || 'Rechnung')} ${esc(r.nummer || '')} vom ${fmtD(r.datum)}</span></div>
-        <span class="sp"></span>${badge({ cls: spaet ? 'st-late' : 'st-open', label: faellig ? (spaet ? 'fällig seit ' : 'fällig ') + fmtD(faellig) : 'ohne Fälligkeit' })} ${/mahn/i.test(r.status_excel || '') ? badge({ cls: 'st-bad', label: r.status_excel }) : ''}</header>
+  /* Sammelüberweisungen: Gruppen von Rechnungs-IDs (eine Karte je Gruppe). Karte auf eine andere Karte derselben Firma ziehen = zusammenfassen */
+  let gruppen = [];
+  const gruppenAktuell = sel => { const ids = new Set(sel.map(x => x.r.id)); gruppen = gruppen.map(g => g.filter(id => ids.has(id))).filter(g => g.length);
+    const drin = new Set(gruppen.flat()); sel.forEach(x => { if (!drin.has(x.r.id)) gruppen.push([x.r.id]); }); return gruppen; };
+  const gx = g => g.map(id => list.find(x => x.r.id === id)).filter(Boolean);
+  const daten = g => { const xs = gx(g), rs = xs.map(x => x.r), r = rs[0], ib = ibanVorschlag(r);
+    return { xs, rs, r, ib, betrag: r2(sum(xs, x => x.st.offen)), zweck: zweckSammel(rs), faellig: xs.map(x => x.faellig).filter(Boolean).sort()[0] || null,
+      ibanAnders: rs.some(y => { const i = ibanVorschlag(y); return i && ib && i.iban.replace(/\s/g, '') !== ib.iban.replace(/\s/g, ''); }) }; };
+  const karte = (g, gi) => {
+    const { xs, rs, r, ib, betrag, zweck, faellig, ibanAnders } = daten(g), spaet = faellig && faellig < heute, sammel = rs.length > 1;
+    const mehr = list.filter(x => !g.includes(x.r.id) && gruppen.some(h => h.includes(x.r.id)) && gleicherEmpf(x.r, r)).length;
+    return `<article class="pz ${spaet ? 'spaet' : ''}" data-gi="${gi}" data-rid="${r.id}" draggable="true" title="Auf eine andere Rechnung derselben Firma ziehen = zu einer Überweisung zusammenfassen">
+      <header><div><span class="muted" aria-hidden="true">⠿</span> <b>${esc(r.partner || '–')}</b> <span class="muted small">· ${sammel ? `<b>Sammelüberweisung</b> · ${rs.length} Rechnungen` : `${esc(r.art || 'Rechnung')} ${esc(r.nummer || '')} vom ${fmtD(r.datum)}`}</span></div>
+        <span class="sp"></span>${badge({ cls: spaet ? 'st-late' : 'st-open', label: faellig ? (spaet ? 'fällig seit ' : 'fällig ') + fmtD(faellig) : 'ohne Fälligkeit' })} ${rs.some(y => /mahn/i.test(y.status_excel || '')) ? badge({ cls: 'st-bad', label: 'Mahnung' }) : ''}</header>
+      ${sammel ? `<ul class="pays small">${xs.map(x => `<li><span>${esc(x.r.nummer || '–')} vom ${fmtD(x.r.datum)}${x.r.skonto ? ` <span class="muted">(Skonto ${fmtE(x.r.skonto)})</span>` : ''}</span><b>${fmtE(x.st.offen)}</b><button class="icon-btn" data-loes="${x.r.id}" title="Aus der Sammelüberweisung lösen">✕</button></li>`).join('')}</ul>` : ''}
+      ${ibanAnders ? '<p class="warn small">Achtung: die Rechnungen haben unterschiedliche IBANs – bitte prüfen.</p>' : ''}
       <div class="pz-g">
         ${feld('Empfänger', r.partner || '', 'Empfänger')}
         ${feld('IBAN' + (ib && ib.quelle !== 'Rechnung' ? ` <small class="muted">(${esc(ib.quelle)})</small>` : ''), ib ? ibanSchoen(ib.iban) : '', 'IBAN', true)}
-        ${feld('Betrag' + (r.skonto ? ` <small class="muted">(mit Skonto ${fmtE(r.skonto)})</small>` : st.key === 'teil' ? ' <small class="muted">(Rest)</small>' : ''), betrag.toFixed(2).replace('.', ','), 'Betrag', true)}
+        ${feld('Betrag' + (sammel ? ` <small class="muted">(Summe ${rs.length} Rechnungen)</small>` : r.skonto ? ` <small class="muted">(mit Skonto ${fmtE(r.skonto)})</small>` : xs[0].st.key === 'teil' ? ' <small class="muted">(Rest)</small>' : ''), betrag.toFixed(2).replace('.', ','), 'Betrag', true)}
         ${feld('Verwendungszweck', zweck, 'Verwendungszweck')}
       </div>
       <div class="btnrow">
-        ${r.datei ? `<button class="btn sm" data-pdf="${r.id}">📄 PDF ansehen</button>` : '<span class="small muted">keine PDF</span>'}
-        ${ib ? `<button class="btn sm" data-qr="${r.id}">▦ GiroCode</button>` : r.datei && DB.aiOn ? `<button class="btn sm" data-ibanki="${r.id}">🔎 IBAN aus PDF lesen</button>` : ''}
+        ${!sammel ? (r.datei ? `<button class="btn sm" data-pdf="${r.id}">📄 PDF ansehen</button>` : '<span class="small muted">keine PDF</span>') : ''}
+        ${ib ? `<button class="btn sm" data-qr="${gi}">▦ GiroCode</button>` : r.datei && DB.aiOn ? `<button class="btn sm" data-ibanki="${r.id}">🔎 IBAN aus PDF lesen</button>` : ''}
         ${!ib ? `<button class="btn sm" data-ibanhand="${r.id}">IBAN eintragen</button>` : ''}
         <button class="btn sm" data-copy="${esc(`Empfänger: ${r.partner || ''}\nIBAN: ${ib ? ibanSchoen(ib.iban) : ''}\nBetrag: ${fmtE(betrag)}\nVerwendungszweck: ${zweck}`)}" data-was="Überweisungsdaten">⧉ Alles kopieren</button>
-        <button class="btn sm" data-a="detail" data-id="${r.id}">Rechnung öffnen</button>
-        <span class="sp"></span><button class="btn sm primary" data-ueberw="${r.id}">✓ Überwiesen</button>
+        ${mehr ? `<button class="btn sm" data-buendel="${gi}" title="Alle ausgewählten Rechnungen dieser Firma in eine Überweisung">⇉ Alle ${mehr + rs.length} von dieser Firma zusammenfassen</button>` : ''}
+        ${!sammel ? `<button class="btn sm" data-a="detail" data-id="${r.id}">Rechnung öffnen</button>` : ''}
+        <span class="sp"></span><button class="btn sm primary" data-ueberw="${gi}">✓ Überwiesen</button>
       </div>
       <div class="pz-qr" hidden></div>
     </article>`;
   };
+  /* Sortierung in Schritt 1 (Klick auf die Spaltenüberschrift; nochmal = umgekehrt) */
+  let sortK = 'faellig', sortAuf = true;
+  const SORT = { datum: x => x.r.datum || '', firma: x => norm(x.r.partner || ''), faellig: x => x.faellig || '9999', betrag: x => x.st.offen };
+  const sortieren = () => { const f = SORT[sortK]; list.sort((a, b) => { const va = f(a), vb = f(b); const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb)); return (sortAuf ? c : -c) || (a.faellig || '9999').localeCompare(b.faellig || '9999') || (a.r.datum || '').localeCompare(b.r.datum || ''); }); };
+  const th = (k, l, cls) => `<th class="${cls || ''}" data-sort="${k}" style="cursor:pointer" title="Sortieren">${l} ${sortK === k ? (sortAuf ? '▲' : '▼') : '<span class="muted">↕</span>'}</th>`;
   // Schritt 1: Übersicht wie in der Excel (Blatt „Ein- und Ausgaben“) – auswählen, was überwiesen werden soll
   const wahl = new Set(list.map(x => x.r.id));
   const tabelle = () => {
-    const sel = list.filter(x => wahl.has(x.r.id));
+    sortieren(); const sel = list.filter(x => wahl.has(x.r.id));
     const zeile = ({ r, st, faellig }) => {
       const spaet = faellig && faellig < heute, ib = ibanVorschlag(r);
       return `<tr data-zeile="${r.id}" class="${wahl.has(r.id) ? '' : 'pz-aus'}">
@@ -82,17 +109,23 @@ function bezahlenAnsicht() {
     <input class="inp search" type="search" id="pzQ" placeholder="Suchen: Lieferant, Nummer, Betrag …">
     <div class="tw scroll" data-view="eingang"><table class="tb pz-tab"><thead><tr>
       <th><input type="checkbox" id="pzAlle" ${sel.length === list.length ? 'checked' : ''} aria-label="alle"></th>
-      <th>Rechnungsdatum</th><th>Firma</th><th>Art</th><th>Rechnungsnr.</th><th>Kategorie</th><th>Zahlart</th><th class="num">Preis gesamt brutto</th><th class="num">Skonto</th><th class="num">Zu zahlen</th><th>Fällig</th><th>Erledigt?</th><th>IBAN</th><th>PDF</th></tr></thead>
+      ${th('datum', 'Rechnungsdatum')}${th('firma', 'Firma')}<th>Art</th><th>Rechnungsnr.</th><th>Kategorie</th><th>Zahlart</th><th class="num">Preis gesamt brutto</th><th class="num">Skonto</th>${th('betrag', 'Zu zahlen', 'num')}${th('faellig', 'Fällig')}<th>Erledigt?</th><th>IBAN</th><th>PDF</th></tr></thead>
       <tbody>${list.map(zeile).join('')}</tbody></table></div>
     <div class="btnrow"><span class="sumline" style="margin:0"><b>${sel.length}</b> von ${list.length} ausgewählt · davon überfällig ${sel.filter(x => x.faellig && x.faellig < heute).length} · zusammen <b>${fmtE(sum(sel, x => x.st.offen))}</b></span><span class="sp"></span><button class="btn primary" data-weiter ${sel.length ? '' : 'disabled'}>Weiter: ${sel.length} überweisen →</button></div>`;
   };
   // Schritt 2: die Überweisungsdaten je ausgewählter Rechnung
   const karten = () => {
-    const sel = list.filter(x => wahl.has(x.r.id));
+    const sel = list.filter(x => wahl.has(x.r.id)), G = gruppenAktuell(sel);
     return `<div class="pz-step"><button class="btn sm" data-zurueck>← Zurück zur Übersicht</button> <b>Schritt 2 von 2</b> · Überweisen
-      <span class="sp"></span><span><b>${sel.length}</b> Rechnung${sel.length === 1 ? '' : 'en'} · zusammen <b>${fmtE(sum(sel, x => x.st.offen))}</b></span></div>
-      <div id="pzL">${sel.map(karte).join('') || '<div class="empty">Alles überwiesen. 🎉</div>'}</div>`;
+      <span class="sp"></span><span><b>${G.length}</b> Überweisung${G.length === 1 ? '' : 'en'} für ${sel.length} Rechnung${sel.length === 1 ? '' : 'en'} · zusammen <b>${fmtE(sum(sel, x => x.st.offen))}</b></span></div>
+      <p class="small muted">Mehrere Rechnungen einer Firma in einer Überweisung: Karte mit der Maus auf eine andere Karte derselben Firma ziehen – Betrag und Verwendungszweck passen sich an.</p>
+      <div id="pzL">${G.map(karte).join('') || '<div class="empty">Alles überwiesen. 🎉</div>'}</div>`;
   };
+  const schritt2 = () => { const y = body().scrollTop; body().innerHTML = karten(); body().scrollTop = y; };
+  const zusammen = (von, nach) => { if (von === nach || !gruppen[von] || !gruppen[nach]) return;
+    const a = S.rechnungen.find(x => x.id === gruppen[von][0]), b = S.rechnungen.find(x => x.id === gruppen[nach][0]);
+    if (!gleicherEmpf(a, b)) { toast('Nur Rechnungen derselben Firma (gleiche IBAN) lassen sich zusammenfassen.'); return; }
+    gruppen[nach] = gruppen[nach].concat(gruppen[von]); gruppen.splice(von, 1); schritt2(); toast('Zu einer Überweisung zusammengefasst.'); };
   if (!list.length) return openSheet({ title: '💸 Bezahlen', noOk: true, html: '<div class="empty">Nichts zu überweisen – alles bezahlt oder per Lastschrift. 🎉</div>' });
   const d = openSheet({ title: '💸 Bezahlen', wide: true, noOk: true, html: `<div id="pzBody">${tabelle()}</div>` });
   const body = () => $('#pzBody', d);
@@ -104,9 +137,19 @@ function bezahlenAnsicht() {
     if (e.target.id === 'pzAlle') { list.forEach(x => e.target.checked ? wahl.add(x.r.id) : wahl.delete(x.r.id)); return nurSumme(); }
     const w = e.target.closest('[data-wahl]'); if (w) { w.checked ? wahl.add(w.dataset.wahl) : wahl.delete(w.dataset.wahl); nurSumme(); }
   });
+  /* Drag & Drop: Karte auf Karte derselben Firma = Sammelüberweisung */
+  let ziehGi = null;
+  d.addEventListener('dragstart', e => { const a = e.target.closest && e.target.closest('.pz[data-gi]'); if (!a) return; ziehGi = +a.dataset.gi; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(ziehGi)); } catch (er) { } a.style.opacity = '.5'; });
+  d.addEventListener('dragend', e => { const a = e.target.closest && e.target.closest('.pz'); if (a) a.style.opacity = ''; $$('.pz', d).forEach(x => x.style.outline = ''); });
+  d.addEventListener('dragover', e => { const a = e.target.closest && e.target.closest('.pz[data-gi]'); if (!a || ziehGi == null || +a.dataset.gi === ziehGi) return; e.preventDefault(); $$('.pz', d).forEach(x => x.style.outline = ''); a.style.outline = '2px dashed var(--accent, #f5e400)'; });
+  d.addEventListener('drop', e => { const a = e.target.closest && e.target.closest('.pz[data-gi]'); if (!a || ziehGi == null) return; e.preventDefault(); const von = ziehGi; ziehGi = null; zusammen(von, +a.dataset.gi); });
   d.addEventListener('click', async e => {
     if (e.target.closest('[data-weiter]')) { body().innerHTML = karten(); body().scrollTop = 0; return; }
     if (e.target.closest('[data-zurueck]')) return schritt1();
+    const so = e.target.closest('[data-sort]'); if (so) { const k = so.dataset.sort; if (sortK === k) sortAuf = !sortAuf; else { sortK = k; sortAuf = k !== 'betrag'; } return nurSumme(); }
+    const lo = e.target.closest('[data-loes]'); if (lo) { const id = lo.dataset.loes; gruppen = gruppen.map(g => g.filter(x => x !== id)).filter(g => g.length); gruppen.push([id]); return schritt2(); }
+    const bu = e.target.closest('[data-buendel]'); if (bu) { const gi = +bu.dataset.buendel, r0 = S.rechnungen.find(x => x.id === gruppen[gi][0]);
+      const rest = gruppen.filter((g, i) => i !== gi && gleicherEmpf(S.rechnungen.find(x => x.id === g[0]), r0)); gruppen[gi] = gruppen[gi].concat(rest.flat()); gruppen = gruppen.filter(g => !rest.includes(g)); toast('Zu einer Überweisung zusammengefasst.'); return schritt2(); }
     // Klick in die Zeile (nicht auf Knöpfe) = an-/abwählen
     const tr = e.target.closest('tr[data-zeile]');
     if (tr && !e.target.closest('button, input')) { const id = tr.dataset.zeile; wahl.has(id) ? wahl.delete(id) : wahl.add(id); return nurSumme(); }
@@ -116,9 +159,9 @@ function bezahlenAnsicht() {
     const q = e.target.closest('[data-qr]');
     if (q) {
       const art = q.closest('.pz'), box = $('.pz-qr', art); if (!box.hidden) { box.hidden = true; return; }
-      const r = S.rechnungen.find(x => x.id === q.dataset.qr), ib = ibanVorschlag(r);
+      const { r, ib, betrag, zweck } = daten(gruppen[+q.dataset.qr]);
       try { await qrLaden(); box.innerHTML = '<div class="pz-qrc"></div><p class="small muted">Mit der Banking-App scannen (Foto-Überweisung / GiroCode) – Empfänger, IBAN, Betrag und Verwendungszweck sind schon ausgefüllt.</p>';
-        new QRCode($('.pz-qrc', box), { text: girocode(r.partner || '', ib.iban, r2(rStatus(r).offen), zweckVon(r)), width: 190, height: 190, correctLevel: QRCode.CorrectLevel.M }); box.hidden = false; }
+        new QRCode($('.pz-qrc', box), { text: girocode(r.partner || '', ib.iban, betrag, zweck), width: 190, height: 190, correctLevel: QRCode.CorrectLevel.M }); box.hidden = false; }
       catch (er) { toast('QR-Code konnte nicht geladen werden.'); }
       return;
     }
@@ -135,16 +178,17 @@ function bezahlenAnsicht() {
       if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban)) { toast('Das sieht nicht nach einer IBAN aus: ' + iban); return; }
       await DB.update('rechnungen', r.id, { iban }); toast('IBAN gespeichert');
       // Karte an Ort und Stelle neu zeichnen (in Schritt 2 bleiben)
-      const x = list.find(y => y.r.id === r.id); if (x) { x.r = S.rechnungen.find(y => y.id === r.id) || x.r; const a = ik.closest('.pz'); if (a) a.outerHTML = karte(x); }
-      return;
+      const x = list.find(y => y.r.id === r.id); if (x) x.r = S.rechnungen.find(y => y.id === r.id) || x.r;
+      return schritt2();
     }
     const u = e.target.closest('[data-ueberw]');
     if (u) {
-      const r = S.rechnungen.find(x => x.id === u.dataset.ueberw);
-      await DB.update('rechnungen', r.id, { status_excel: 'Bezahlt', bezahlt_extern: true, notiz: [r.notiz, 'überwiesen am ' + fmtD(todayISO())].filter(Boolean).join(' · ') });
-      const art = u.closest('.pz'); art.classList.add('fertig'); setTimeout(() => art.remove(), 400);
-      wahl.delete(r.id); const i = list.findIndex(x => x.r.id === r.id); if (i >= 0) list.splice(i, 1);   // auch aus der Übersicht (Schritt 1) nehmen
-      toast('Als überwiesen markiert – die Bank-Buchung wird später automatisch zugeordnet.'); render(); return;
+      const gi = +u.dataset.ueberw, { rs, zweck } = daten(gruppen[gi]), sammel = rs.length > 1;
+      for (const r of rs) await DB.update('rechnungen', r.id, { status_excel: 'Bezahlt', bezahlt_extern: true, notiz: [r.notiz, 'überwiesen am ' + fmtD(todayISO()) + (sammel ? ' (Sammelüberweisung: ' + zweck + ')' : '')].filter(Boolean).join(' · ') });
+      rs.forEach(r => { wahl.delete(r.id); const i = list.findIndex(x => x.r.id === r.id); if (i >= 0) list.splice(i, 1); });   // auch aus der Übersicht (Schritt 1) nehmen
+      gruppen.splice(gi, 1);
+      const art = u.closest('.pz'); art.classList.add('fertig'); setTimeout(() => schritt2(), 400);
+      toast((sammel ? rs.length + ' Rechnungen' : 'Rechnung') + ' als überwiesen markiert – die Bank-Buchung wird später automatisch zugeordnet.'); render(); return;
     }
     const det = e.target.closest('[data-a="detail"]'); if (det) rechnungDetail(det.dataset.id);
   });

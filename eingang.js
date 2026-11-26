@@ -327,7 +327,9 @@ async function eingangDrop(fileList) {
     finally { fertig++; busy(true, `Belege: ${fertig} von ${belege.length} fertig` + (DB.aiOn ? ' – KI liest …' : ' …')); }
   };
   const warte = belege.slice();
-  await Promise.all([0, 1, 2].map(async () => { while (warte.length) await eins(warte.shift()); }));
+  /* jede Datei höchstens 4 Minuten – hängt eine, laufen die anderen weiter und sie kommt zurück in den Stapel */
+  const mitLimit = b => { let fertigB = false; return Promise.race([eins(b).finally(() => { fertigB = true; }), new Promise(r => setTimeout(() => { if (!fertigB) { zurueck.add(b.quelle || b.file); fehler.push(b.name + ': hat zu lange gedauert – liegt wieder im Stapel, bitte einzeln nochmal'); } r(); }, 240000))]); };
+  await Promise.all([0, 1, 2].map(async () => { while (warte.length) await mitLimit(warte.shift()); }));
   if (zurueck.size) { [...zurueck].forEach(f => { if (!KORB.includes(f)) KORB.push(f); }); korbRender(true); }   // gescheiterte Dateien liegen wieder im Stapel → einfach nochmal „Verarbeiten“
   busy(true, 'Gleiche mit Bank ab …');
   const res = await autoAbgleich().catch(() => ({ n: 0 }));

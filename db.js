@@ -156,7 +156,8 @@ const DB = (() => {
   const nochmal = async (f, versuche = 3) => {
     for (let i = 1; ; i++) {
       try { return await f(); }
-      catch (e) { const vorüber = e.code === 'rate_limited' || e.code === 'unavailable' || e.code === 'overloaded' || /fetch|network|timeout|load failed|5\d\d/i.test(String(e.message || e));
+      catch (e) { /* Zeitlimit nicht wiederholen – sonst wartet man bei einer zu großen Datei 3 × 2,5 Minuten */
+        const vorüber = e.code !== 'timeout' && (e.code === 'rate_limited' || e.code === 'unavailable' || e.code === 'overloaded' || /fetch|network|load failed|5\d\d/i.test(String(e.message || e)));
         if (!vorüber || i >= versuche) throw e; await new Promise(r => setTimeout(r, i === 1 ? 2000 : 6000)); }
     }
   };
@@ -164,7 +165,9 @@ const DB = (() => {
     if (!aiOn) throw Object.assign(new Error('KI nur online verfügbar'), { code: 'offline' });
     const messages = [{ role: 'user', content: prompt }];
     return nochmal(async () => {
-      const { data, error } = await sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } });
+      /* höchstens 3 Minuten auf die KI warten, dann mit Zeitlimit abbrechen (statt endlos „KI liest …“) */
+      const { data, error } = await Promise.race([sb.functions.invoke(cfg.aiFunction || 'claude', { body: { messages, tier, files } }),
+        new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('Zeitlimit – die KI hat nach 3 Minuten nicht geantwortet'), { code: 'timeout' })), 180000))]);
       if (error) {
         // Den eigentlichen Grund aus der Antwort der Edge Function lesen (sonst bleibt nur „non-2xx status code“)
         const ctx = error.context, st = ctx && ctx.status; let b = null;
