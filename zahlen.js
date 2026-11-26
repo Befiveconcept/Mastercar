@@ -27,6 +27,10 @@ function zweckSammel(rs) {
   if ((t + ende).length > 140) { t = 'Rg. ' + nrn.join(' '); if ((t + ende).length > 140) t = t.slice(0, 140 - ende.length - 2) + ' …'; }
   return (t + ende).slice(0, 140);
 }
+/* Mahnstufe einer Rechnung (0 = keine) und auffällige Markierung dafür */
+const mahnStufe = r => { const s = String(r.status_excel || ''); return /3\.\s*mahn/i.test(s) ? 3 : /2\.\s*mahn/i.test(s) ? 2 : /mahn/i.test(s) ? 1 : 0; };
+const MAHN_ROT = '#e5484d';
+const mahnBadge = (st, gross) => st ? `<span class="badge st-bad" style="background:${MAHN_ROT};color:#fff;font-weight:700;${gross ? 'font-size:13px;padding:3px 10px;' : ''}">⚠ ${st === 1 ? 'MAHNUNG' : st + '. MAHNUNG'}</span>` : '';
 // gehören zwei Rechnungen zum selben Empfänger? (gleiche IBAN oder gleiches erstes Namenswort)
 const gleicherEmpf = (a, b) => { const ia = ibanVorschlag(a), ib = ibanVorschlag(b); if (ia && ib) return ia.iban.replace(/\s/g, '') === ib.iban.replace(/\s/g, ''); return (nameTokens(a.partner || '')[0] || 'a') === (nameTokens(b.partner || '')[0] || 'b'); };
 // EPC-QR (GiroCode) – wird von fast allen deutschen Banking-Apps gelesen
@@ -58,9 +62,11 @@ function bezahlenAnsicht() {
   const karte = (g, gi) => {
     const { xs, rs, r, ib, betrag, zweck, faellig, ibanAnders } = daten(g), spaet = faellig && faellig < heute, sammel = rs.length > 1;
     const mehr = list.filter(x => !g.includes(x.r.id) && gruppen.some(h => h.includes(x.r.id)) && gleicherEmpf(x.r, r)).length;
-    return `<article class="pz ${spaet ? 'spaet' : ''}" data-gi="${gi}" data-rid="${r.id}" draggable="true" title="Auf eine andere Rechnung derselben Firma ziehen = zu einer Überweisung zusammenfassen">
+    const ms = Math.max(0, ...rs.map(mahnStufe));
+    return `<article class="pz ${spaet ? 'spaet' : ''}" data-gi="${gi}" data-rid="${r.id}" draggable="true" title="Auf eine andere Rechnung derselben Firma ziehen = zu einer Überweisung zusammenfassen"${ms ? ` style="border:2px solid ${MAHN_ROT};box-shadow:0 0 0 3px rgba(229,72,77,.18)"` : ''}>
+      ${ms ? `<div style="background:${MAHN_ROT};color:#fff;font-weight:700;padding:6px 12px;margin:-1px -1px 8px;border-radius:inherit;border-bottom-left-radius:0;border-bottom-right-radius:0">⚠ ${ms === 1 ? 'Mahnung' : ms + '. Mahnung'} – bitte zuerst bezahlen${rs.length > 1 ? ' (' + rs.filter(mahnStufe).map(y => y.nummer).join(', ') + ')' : ''}</div>` : ''}
       <header><div><span class="muted" aria-hidden="true">⠿</span> <b>${esc(r.partner || '–')}</b> <span class="muted small">· ${sammel ? `<b>Sammelüberweisung</b> · ${rs.length} Rechnungen` : `${esc(r.art || 'Rechnung')} ${esc(r.nummer || '')} vom ${fmtD(r.datum)}`}</span></div>
-        <span class="sp"></span>${badge({ cls: spaet ? 'st-late' : 'st-open', label: faellig ? (spaet ? 'fällig seit ' : 'fällig ') + fmtD(faellig) : 'ohne Fälligkeit' })} ${rs.some(y => /mahn/i.test(y.status_excel || '')) ? badge({ cls: 'st-bad', label: 'Mahnung' }) : ''}</header>
+        <span class="sp"></span>${badge({ cls: spaet ? 'st-late' : 'st-open', label: faellig ? (spaet ? 'fällig seit ' : 'fällig ') + fmtD(faellig) : 'ohne Fälligkeit' })} ${mahnBadge(ms, true)}</header>
       ${sammel ? `<ul class="pays small">${xs.map(x => `<li><span>${esc(x.r.nummer || '–')} vom ${fmtD(x.r.datum)}${x.r.skonto ? ` <span class="muted">(Skonto ${fmtE(x.r.skonto)})</span>` : ''}</span><b>${fmtE(x.st.offen)}</b><button class="icon-btn" data-loes="${x.r.id}" title="Aus der Sammelüberweisung lösen">✕</button></li>`).join('')}</ul>` : ''}
       ${ibanAnders ? '<p class="warn small">Achtung: die Rechnungen haben unterschiedliche IBANs – bitte prüfen.</p>' : ''}
       <div class="pz-g">
@@ -84,17 +90,18 @@ function bezahlenAnsicht() {
   /* Sortierung in Schritt 1 (Klick auf die Spaltenüberschrift; nochmal = umgekehrt) */
   let sortK = 'faellig', sortAuf = true;
   const SORT = { datum: x => x.r.datum || '', firma: x => norm(x.r.partner || ''), faellig: x => x.faellig || '9999', betrag: x => x.st.offen };
-  const sortieren = () => { const f = SORT[sortK]; list.sort((a, b) => { const va = f(a), vb = f(b); const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb)); return (sortAuf ? c : -c) || (a.faellig || '9999').localeCompare(b.faellig || '9999') || (a.r.datum || '').localeCompare(b.r.datum || ''); }); };
+  /* Bei „Fällig“ (Standard) stehen Mahnungen ganz oben (höchste Stufe zuerst) */
+  const sortieren = () => { const f = SORT[sortK]; list.sort((a, b) => { const m = sortK === 'faellig' ? mahnStufe(b.r) - mahnStufe(a.r) : 0; if (m) return m; const va = f(a), vb = f(b); const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb)); return (sortAuf ? c : -c) || (a.faellig || '9999').localeCompare(b.faellig || '9999') || (a.r.datum || '').localeCompare(b.r.datum || ''); }); };
   const th = (k, l, cls) => `<th class="${cls || ''}" data-sort="${k}" style="cursor:pointer" title="Sortieren">${l} ${sortK === k ? (sortAuf ? '▲' : '▼') : '<span class="muted">↕</span>'}</th>`;
   // Schritt 1: Übersicht wie in der Excel (Blatt „Ein- und Ausgaben“) – auswählen, was überwiesen werden soll
   const wahl = new Set(list.map(x => x.r.id));
   const tabelle = () => {
     sortieren(); const sel = list.filter(x => wahl.has(x.r.id));
     const zeile = ({ r, st, faellig }) => {
-      const spaet = faellig && faellig < heute, ib = ibanVorschlag(r);
-      return `<tr data-zeile="${r.id}" class="${wahl.has(r.id) ? '' : 'pz-aus'}">
+      const spaet = faellig && faellig < heute, ib = ibanVorschlag(r), ms = mahnStufe(r);
+      return `<tr data-zeile="${r.id}" class="${wahl.has(r.id) ? '' : 'pz-aus'}"${ms ? ` style="background:rgba(229,72,77,${0.1 + ms * 0.06});box-shadow:inset 4px 0 0 ${MAHN_ROT}"` : ''}>
         <td class="c-chk"><input type="checkbox" data-wahl="${r.id}" ${wahl.has(r.id) ? 'checked' : ''} aria-label="auswählen"></td>
-        <td class="c-datum">${fmtD(r.datum)}</td><td class="c-lief">${esc(r.partner || '')}</td>
+        <td class="c-datum">${fmtD(r.datum)}</td><td class="c-lief">${ms ? mahnBadge(ms) + ' ' : ''}${ms ? '<b>' + esc(r.partner || '') + '</b>' : esc(r.partner || '')}</td>
         <td class="c-art ${(+r.brutto || 0) < 0 ? 'x-art-g' : 'x-art-r'}">${esc(r.art || 'Rechnung')}</td><td class="c-nr">${esc(r.nummer || '')}</td>
         <td class="c-ka">${esc(r.kostenart || '')}</td><td class="c-za">${esc(ZA[r.zahlart] || '')}</td>
         <td class="c-brutto num">${fmtE(r.brutto)}</td><td class="c-skonto num">${r.skonto ? fmtE(r.skonto) : ''}</td>
@@ -106,6 +113,7 @@ function bezahlenAnsicht() {
     };
     return `
     <div class="pz-step"><b>Schritt 1 von 2</b> · Offene Rechnungen auswählen <span class="muted small">(ohne „Abbuchung offen“ / SEPA – die werden abgebucht)</span></div>
+    ${(() => { const M = list.filter(x => mahnStufe(x.r)); return M.length ? `<div style="background:${MAHN_ROT};color:#fff;padding:10px 14px;border-radius:10px;margin:6px 0 10px;font-weight:600">⚠ ${M.length} Rechnung${M.length === 1 ? '' : 'en'} mit Mahnung · zusammen ${fmtE(sum(M, x => x.st.offen))} – bitte zuerst bezahlen: ${M.map(x => esc((x.r.partner || '') + ' ' + (x.r.nummer || '') + ' (' + (mahnStufe(x.r) === 1 ? 'Mahnung' : mahnStufe(x.r) + '. Mahnung') + ')')).join(' · ')}</div>` : ''; })()}
     <input class="inp search" type="search" id="pzQ" placeholder="Suchen: Lieferant, Nummer, Betrag …">
     <div class="tw scroll" data-view="eingang"><table class="tb pz-tab"><thead><tr>
       <th><input type="checkbox" id="pzAlle" ${sel.length === list.length ? 'checked' : ''} aria-label="alle"></th>
