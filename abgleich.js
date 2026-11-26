@@ -187,6 +187,10 @@ function zweckKurz(s) {
 // Bankbewegungen, die weder Kosten noch Erlöse sind (Darlehen aufnehmen/tilgen, Vorjahr, Rücklastschrift-Paare, Privat, Umbuchung …)
 const bankNeutral = b => ['privat', 'intern', 'ignoriert', 'vorjahr', 'darlehen'].includes(b.art)
   || (!(IDX.zByB.get(b.id) || []).length && ['darlehen', 'vorjahr', 'rueck'].includes(IDX.bArt && IDX.bArt.get(b.id)));
+/* Erstattung der Krankenkasse nach AAG (U1 Lohnfortzahlung, U2 Mutterschaft) mindert die Personalkosten */
+const KK_RX = /\bikk\b|\baok\b|\bbkk\b|barmer|techniker\s*kranken|\btk\b|\bdak\b|\bkkh\b|\bhkk\b|knappschaft|minijob|krankenkasse|kranken\s*kasse|krankenversicherung|sozialversicherung|svlfg|ersatzkasse/i;
+const AAG_RX = /\baag\b|\bu\s?[12]\b|umlage|lohnfortzahl|entgeltfortzahl|mutterschaft|mutterschutz|erstatt/i;
+const personalErstattung = b => b.betrag > 0 && !b.art && !(IDX.zByB.get(b.id) || []).length && KK_RX.test(b.gegenpartei || '') && AAG_RX.test(b.zweck || '') && !RUECK_RX.test(b.zweck || '');
 const zRichtung = z => { const r = (IDX.rById && IDX.rById.get(z.rechnung_id)) || S.rechnungen.find(x => x.id === z.rechnung_id); return r && r.richtung === 'eingang' ? -1 : 1; };
 const zFluss = z => zRichtung(z) * (+z.betrag || 0);   // + = Geld kommt rein, − = Geld geht raus
 const B_ST = {

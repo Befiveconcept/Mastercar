@@ -449,14 +449,24 @@ function viewRechnungen(dir) {
   </tbody></table></div>${moreBtn(view, list.length, lim)}`;
 }
 
-const FILT_B = [['offen', 'Nicht zugeordnet'], ['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'], ['sumup', 'SumUp-Auszahlungen'], ['kosten', 'Kosten ohne Beleg']];
+/* Bank-Filter: mehrere gleichzeitig. Innerhalb einer Gruppe „oder“, zwischen den Gruppen „und“
+   (z. B. Eingänge + Nicht zugeordnet = nicht zugeordnete Eingänge; Nicht zugeordnet + Kosten ohne Beleg = beides) */
+const FILT_B = [['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'], ['offen', 'Nicht zugeordnet'], ['zug', 'Zugeordnet'], ['sumup', 'SumUp-Auszahlungen'], ['kosten', 'Kosten ohne Beleg'], ['auto', 'Ohne Rechnung (Erstattung, Gebühr …)'], ['neutral', 'Privat / Umbuchung / Darlehen / 2025']];
+const FILT_B_TEST = {
+  ein: x => x.b.betrag > 0, aus: x => x.b.betrag < 0,
+  offen: x => ['offen', 'teilweise'].includes(x.st.key), zug: x => ['zugeordnet', 'teilweise'].includes(x.st.key), sumup: x => x.b.art === 'sumup',
+  kosten: x => x.st.key === 'kosten', auto: x => x.st.key === 'auto', neutral: x => ['privat', 'intern', 'ignoriert', 'vorjahr', 'darlehen'].includes(x.st.key)
+};
+function chipsMulti(view, opts) {
+  const sel = filtListe(view);
+  return `<div class="chips">${opts.map(([k, l]) => `<button class="chip ${k === 'alle' ? (!sel.length ? 'on' : '') : sel.includes(k) ? 'on' : ''}" data-act="filtT" data-v="${view}" data-f="${k}" title="${k === 'alle' ? 'Alle Filter aus' : 'Klick = an/aus · mehrere gleichzeitig möglich'}">${l}</button>`).join('')}</div>`;
+}
 function viewBank() {
   const range = periodRange(UI.period);
   let list = S.bank.filter(b => UI.period === 'alle' || inP(b.datum, range)).map(b => ({ b, st: bStatus(b) }));
-  const f = UI.filt.bank;
-  if (f === 'offen') list = list.filter(x => ['offen', 'teilweise'].includes(x.st.key));
-  else if (f === 'ein') list = list.filter(x => x.b.betrag > 0); else if (f === 'aus') list = list.filter(x => x.b.betrag < 0);
-  else if (f === 'sumup') list = list.filter(x => x.b.art === 'sumup'); else if (f === 'kosten') list = list.filter(x => x.st.key === 'kosten');
+  const fs = filtListe('bank').filter(k => FILT_B_TEST[k]), richt = fs.filter(k => k === 'ein' || k === 'aus'), stat = fs.filter(k => k !== 'ein' && k !== 'aus');
+  if (richt.length) list = list.filter(x => richt.some(k => FILT_B_TEST[k](x)));
+  if (stat.length) list = list.filter(x => stat.some(k => FILT_B_TEST[k](x)));
   const q = (UI.q.bank || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => [x.b.gegenpartei, x.b.zweck, x.b.kostenart, x.b.iban, fmtE(x.b.betrag), x.b.betrag, fmtD(x.b.datum)].join(' ').toLowerCase().includes(w)));
   list.sort((a, b) => b.b.datum.localeCompare(a.b.datum));
   const bRe = x => x.st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean).map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(' ') || x.b.kostenart || '';
@@ -466,7 +476,7 @@ function viewBank() {
   const lim = UI.more.bank || 300;
   return `
   <div class="toolbar"><h1>Bank</h1><span class="sp"></span><button class="btn primary" data-act="korbPick" title="PDF-Kontoauszüge, CSV oder Excel – auch mehrere auf einmal">⬆ Kontoauszüge (PDF, Excel, CSV)</button><button class="btn" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="csv" data-v="bank">CSV</button></div>
-  <div class="filters">${chips('bank', FILT_B)}${searchIn('bank', 'Name, Verwendungszweck, Betrag …')}
+  <div class="filters">${chipsMulti('bank', FILT_B)}${searchIn('bank', 'Name, Verwendungszweck, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Umsätze · Eingänge ${fmtE(sum(list.filter(x => x.b.betrag > 0), x => x.b.betrag))} · Ausgänge ${fmtE(sum(list.filter(x => x.b.betrag < 0), x => x.b.betrag))}${colReset('bank')}</div>
   <div class="tw"><table class="tb click">${colHead('bank', cols, base)}<tbody>
