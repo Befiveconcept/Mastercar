@@ -79,6 +79,30 @@ function hbars(items, total) {
 }
 
 /* ---------- Übersicht ---------- */
+/* Kontostand: Ausgangswert (eingetragen oder aus dem PDF-Kontoauszug) + alle Buchungen danach.
+   Ausgangswert = Stand am Ende des Tages „datum“ (inkl. aller Buchungen dieses Tages). */
+function kontostand() {
+  const a = S.einstellungen.kontostand, letzte = S.bank.reduce((m, b) => b.datum > m ? b.datum : m, '');
+  if (!a || a.betrag == null || !a.datum) return { betrag: null, letzte };
+  const nach = S.bank.filter(b => b.datum > a.datum);
+  return { betrag: r2(+a.betrag + sum(nach, b => b.betrag)), letzte: letzte > a.datum ? letzte : a.datum, anker: a, nach: nach.length };
+}
+function kontoKachel(cls) {
+  const k = kontostand();
+  if (k.betrag == null) return `<button class="k ${cls || ''}" data-act="kontoSetzen" title="Kontostand aus dem Online-Banking eintragen"><div class="kv muted">–</div><div class="kl">Kontostand Bank · eintragen ✎</div></button>`;
+  return `<button class="k ${cls || ''}" data-act="kontoSetzen" title="Ausgangswert: ${esc(fmtE(k.anker.betrag))} am ${esc(fmtD(k.anker.datum))} (${esc(k.anker.quelle || 'eingetragen')}) + ${k.nach} Buchungen danach. Klick = korrigieren"><div class="kv ${k.betrag < 0 ? 'neg' : ''}">${fmtE(k.betrag)}</div><div class="kl">Kontostand Bank · Stand ${fmtD(k.letzte)}</div></button>`;
+}
+function kontoSetzen() {
+  const k = kontostand(), heute = todayISO();
+  openSheet({ title: 'Kontostand Bank', okLabel: 'Speichern', html: `<p class="small muted">Trag den Kontostand aus dem Online-Banking ein (Stand am Ende des Tages, inkl. aller Buchungen dieses Tages). Ab dann rechnet die App jede neu importierte Buchung dazu. Beim Hochladen eines PDF-Kontoauszugs wird der Endsaldo automatisch übernommen.</p>
+    ${k.betrag != null ? `<p class="small">Aktuell: <b>${fmtE(k.betrag)}</b> = ${fmtE(k.anker.betrag)} am ${fmtD(k.anker.datum)} (${esc(k.anker.quelle || 'eingetragen')}) + ${k.nach} Buchungen danach.</p>` : ''}
+    <label class="fld"><span>Kontostand (€)</span><input class="inp" id="ksB" inputmode="decimal" placeholder="z. B. 12.345,67"></label>
+    <label class="fld"><span>Stand vom</span><input class="inp" type="date" id="ksD" value="${heute}" max="${heute}"></label>
+    <p class="small muted">Letzte importierte Buchung: ${k.letzte ? fmtD(k.letzte) : '–'}.</p>`,
+    onOk: async d => { const b = parseNum($('#ksB', d).value), dt = $('#ksD', d).value;
+      if (b == null || !dt) { toast('Bitte Betrag und Datum angeben.'); return false; }
+      await DB.setSetting('kontostand', { datum: dt, betrag: r2(b), quelle: 'eingetragen' }); render(); toast('Kontostand gespeichert.'); } });
+}
 function viewStart() {
   const range = periodRange(UI.period), K = kennzahlen(range);
   const months = Object.keys(K.mon).sort().slice(-12);
@@ -100,6 +124,7 @@ function viewStart() {
     <button class="k" data-act="go" data-v="guv" data-t="guv"><div class="kv ${K.ergebnis < 0 ? 'neg' : ''}">${fmtE(K.ergebnis)}</div><div class="kl">Ergebnis netto → GuV</div></button>
     <button class="k" data-act="go" data-v="ausgang" data-f="offen"><div class="kv">${fmtE(sum(K.offenA, x => x.st.offen))}</div><div class="kl">Offene Kundenrechnungen · ${K.offenA.length}</div></button>
     <button class="k" data-act="go" data-v="eingang" data-f="offen"><div class="kv">${fmtE(sum(K.offenE, x => x.st.offen))}</div><div class="kl">Offene Lieferantenrechnungen · ${K.offenE.length}</div></button>
+    ${kontoKachel()}
   </section>
   <div class="grid2">
     <section class="card"><h3>Umsatz und Kosten je Monat (netto)</h3>${barChart(months.map(monthLabel), [{ name: 'Umsatz', cls: 'c1', data: months.map(k => r2(K.mon[k].e)) }, { name: 'Kosten', cls: 'c2', data: months.map(k => r2(K.mon[k].a)) }])}</section>
@@ -476,6 +501,7 @@ function viewBank() {
   const lim = UI.more.bank || 300;
   return `
   <div class="toolbar"><h1>Bank</h1><span class="sp"></span><button class="btn primary" data-act="korbPick" title="PDF-Kontoauszüge, CSV oder Excel – auch mehrere auf einmal">⬆ Kontoauszüge (PDF, Excel, CSV)</button><button class="btn" data-act="auto">⟳ Automatisch abgleichen</button><button class="btn" data-act="csv" data-v="bank">CSV</button></div>
+  <section class="kpi">${kontoKachel('hi')}</section>
   <div class="filters">${chipsMulti('bank', FILT_B)}${searchIn('bank', 'Name, Verwendungszweck, Betrag …')}
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Umsätze · Eingänge ${fmtE(sum(list.filter(x => x.b.betrag > 0), x => x.b.betrag))} · Ausgänge ${fmtE(sum(list.filter(x => x.b.betrag < 0), x => x.b.betrag))}${colReset('bank')}</div>

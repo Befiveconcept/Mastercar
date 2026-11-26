@@ -55,6 +55,9 @@ async function kontoauszugImport(b) {
   // Saldo-Probe: Anfangssaldo + Buchungen = Endsaldo?
   const a = parseNum(j.anfangssaldo), e = parseNum(j.endsaldo), summe = sum(rows, r => r.betrag);
   const probe = a != null && e != null ? (eq(r2(a + summe), e) ? 'ok' : `Saldo passt nicht: ${fmtE(a)} + ${fmtE(summe)} ≠ ${fmtE(e)} – evtl. fehlt eine Buchung`) : null;
+  /* Endsaldo als Kontostand merken, wenn der Auszug neuer ist als der bisherige Ausgangswert */
+  const bis = parseDate(j.bis) || rows.reduce((m, r) => r.datum > m ? r.datum : m, ''), alt = S.einstellungen.kontostand;
+  if (e != null && bis && (!alt || !alt.datum || bis >= alt.datum)) DB.setSetting('kontostand', { datum: bis, betrag: r2(e), quelle: 'Kontoauszug ' + b.name }).catch(() => { });
   const [imp] = await DB.insert('importe', [{ art: 'bank', datei: b.name, zeilen: rows.length }]);
   const mit = rows.map(r => ({ ...r, import_id: imp.id })); markBankArten(mit);
   const added = await DB.insert('bank', mit);

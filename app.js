@@ -223,6 +223,7 @@ Object.assign(A, {
   go: d => { document.body.classList.remove('menu-on'); $('.menu-btn')?.setAttribute('aria-expanded', 'false'); UI.view = d.v; if (d.f) UI.filt[d.v] = d.f;
     if (d.v === 'ausgang' && UI.cs.ausgang) { UI.cs.ausgang.k = null; UI.cs.ausgang.d = null; } /* beim Öffnen immer neueste Rechnung oben */ if (d.t) UI.auswTab = d.t; render(); window.scrollTo(0, 0); $('#main').focus({ preventScroll: true }); },
   filt: d => { UI.filt[d.v] = d.f; UI.more[d.v] = 0; render(); },
+  kontoSetzen: () => kontoSetzen(),
   filtT: d => { let sel = filtListe(d.v); if (d.f === 'alle') sel = []; else sel = sel.includes(d.f) ? sel.filter(x => x !== d.f) : sel.concat(d.f); UI.filt[d.v] = sel.length ? sel : 'alle'; UI.more[d.v] = 0; render(); },   /* Filterknopf an/aus, mehrere gleichzeitig */
   avisD: d => avisDetail(d.id),
   bezahlen: () => bezahlenAnsicht(),
