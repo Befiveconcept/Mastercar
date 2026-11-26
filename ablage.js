@@ -35,9 +35,11 @@ async function belegSpeichern(r, file) {
   const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
   await DB.upload(datei, file);
   let dateiname = name, _ordner = false, _grund = '';
-  const ord = await ablageOrdner(false, dir);
-  if (!ord) _grund = !ablageMoeglich() ? 'Browser kann keine Ordner (Chrome/Edge nehmen)' : !ablageVon(dir) ? `kein Ordner für ${dir === 'ausgang' ? 'Rechnungsausgang' : 'Rechnungseingang'} gewählt` : 'kein Zugriff auf den Ordner erlaubt';
-  else { try { dateiname = await ablageSchreiben(ord, name, file); _ordner = true; } catch (e) { console.warn(e); _grund = 'Schreiben fehlgeschlagen: ' + (e.message || e.name); } }
+  /* Ordner-Ablage (z. B. OneDrive) darf das Verarbeiten nie aufhalten: höchstens 20 Sekunden, sonst ohne Ordner weiter */
+  const zeit = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+  const ord = await zeit(ablageOrdner(false, dir), 10000, 'Ordner antwortet nicht').catch(() => null);
+  if (!ord) _grund = !ablageMoeglich() ? 'Browser kann keine Ordner (Chrome/Edge nehmen)' : !ablageVon(dir) ? `kein Ordner für ${dir === 'ausgang' ? 'Rechnungsausgang' : 'Rechnungseingang'} gewählt` : 'kein Zugriff auf den Ordner (oder er antwortet nicht)';
+  else { try { dateiname = await zeit(ablageSchreiben(ord, name, file), 20000, 'Ordner hat nach 20 s nicht geantwortet'); _ordner = true; } catch (e) { console.warn(e); dateiname = name; _grund = 'Schreiben fehlgeschlagen: ' + (e.message || e.name); } }
   ABLAGE_LOG.push({ name: dateiname, ok: _ordner, grund: _grund, art: dir, ordner: ord ? ord.name : '' });
   return { datei, dateiname, _ordner, _grund };   // Felder mit _ werden nicht gespeichert
 }
