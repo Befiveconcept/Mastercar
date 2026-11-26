@@ -252,6 +252,7 @@ function hatGrenze(hay, s, auchVorne) {
   return false;
 }
 function nrHit(nummer, text) {
+  if (/^\s*\d{2,3}\s*\/\s*\d{3,4}\s*\/\s*\d{4,5}\s*$/.test(String(nummer || ''))) return false;   /* Steuernummer (219/5839/3425) steht in JEDER Finanzamt-Zahlung – keine Rechnungsnummer */
   const nr = normNr(nummer); if (!nr || nr.length < 3) return false;
   const P = typeof text === 'object' && text ? text : prepText(expandNr(text)), flat = P.flat, toks = P.toks;
   if (toks.has(nr)) return true;
