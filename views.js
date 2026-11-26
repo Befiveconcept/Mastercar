@@ -476,15 +476,22 @@ function viewRechnungen(dir) {
 
 /* Bank-Filter: mehrere gleichzeitig. Innerhalb einer Gruppe „oder“, zwischen den Gruppen „und“
    (z. B. Eingänge + Nicht zugeordnet = nicht zugeordnete Eingänge; Nicht zugeordnet + Kosten ohne Beleg = beides) */
-const FILT_B = [['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'], ['offen', 'Nicht zugeordnet'], ['zug', 'Zugeordnet'], ['sumup', 'SumUp-Auszahlungen'], ['kosten', 'Beleg fehlt'], ['auto', 'Ohne Rechnung (Lohn, Krankenkasse, Wasser, Gebühr …)'], ['neutral', 'Privat / Umbuchung / Darlehen / 2025']];
+/* Jede Buchung gehört zu genau einer Kategorie: zu erledigen (nicht zugeordnet / Beleg fehlt) oder erledigt
+   (mit Rechnung, SumUp, ohne Rechnung, gehört zu 2025, keine Kosten). Einträge mit „|“ sind nur Überschriften. */
+const FILT_B = [['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'],
+  ['|', 'Zu erledigen:'], ['offen', 'Nicht zugeordnet'], ['kosten', 'Beleg fehlt'],
+  ['|', 'Erledigt:'], ['zug', 'Mit Rechnung'], ['sumup', 'SumUp-Auszahlungen'], ['auto', 'Ohne Rechnung (Lohn, Krankenkasse, Wasser, Gebühr, Erstattung)'], ['vorjahr', 'Gehört zu 2025'], ['neutral', 'Keine Kosten (Privat, Umbuchung, Darlehen, Rücklastschrift, Steuer)']];
+const B_OHNE = ['laufend', 'gebuehr', 'erstattung', 'durchlaufend', 'rueckzahlung'];
 const FILT_B_TEST = {
   ein: x => x.b.betrag > 0, aus: x => x.b.betrag < 0,
   offen: x => ['offen', 'teilweise'].includes(x.st.key), zug: x => ['zugeordnet', 'teilweise'].includes(x.st.key), sumup: x => x.b.art === 'sumup',
-  kosten: x => x.st.key === 'kosten', auto: x => x.st.key === 'auto', neutral: x => ['privat', 'intern', 'ignoriert', 'vorjahr', 'darlehen'].includes(x.st.key)
+  kosten: x => x.st.key === 'kosten', auto: x => x.st.key === 'auto' && B_OHNE.includes(x.st.auto),
+  vorjahr: x => x.st.key === 'vorjahr' || x.st.auto === 'vorjahr',
+  neutral: x => ['privat', 'intern', 'ignoriert', 'darlehen'].includes(x.st.key) || (x.st.key === 'auto' && ['darlehen', 'rueck', 'steuer'].includes(x.st.auto))
 };
 function chipsMulti(view, opts) {
   const sel = filtListe(view);
-  return `<div class="chips">${opts.map(([k, l]) => `<button class="chip ${k === 'alle' ? (!sel.length ? 'on' : '') : sel.includes(k) ? 'on' : ''}" data-act="filtT" data-v="${view}" data-f="${k}" title="${k === 'alle' ? 'Alle Filter aus' : 'Klick = an/aus · mehrere gleichzeitig möglich'}">${l}</button>`).join('')}</div>`;
+  return `<div class="chips">${opts.map(([k, l]) => k === '|' ? `<span class="small muted" style="align-self:center;margin:0 2px 0 10px">${l}</span>` : `<button class="chip ${k === 'alle' ? (!sel.length ? 'on' : '') : sel.includes(k) ? 'on' : ''}" data-act="filtT" data-v="${view}" data-f="${k}" title="${k === 'alle' ? 'Alle Filter aus' : 'Klick = an/aus · mehrere gleichzeitig möglich'}">${l}</button>`).join('')}</div>`;
 }
 function viewBank() {
   const range = periodRange(UI.period);
