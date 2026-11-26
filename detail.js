@@ -247,6 +247,27 @@ function zahlungPicker(r) {
   });
 }
 
+/* Kleinen Rest einer zugeordneten Buchung ausbuchen: Skonto/Rundung (keine Kosten) oder Gebühr (zählt als Kosten) */
+function restAusbuchen(b, rest, fertig) {
+  const aus = b.betrag < 0;
+  openSheet({ title: 'Rest ' + fmtE(rest) + ' ausbuchen', okLabel: 'Ausbuchen', html: `
+    <p class="small muted">Die Buchung gilt danach als vollständig zugeordnet. Die zugeordneten Rechnungen bleiben unverändert.</p>
+    <form class="form2">
+      <label class="fld full"><span>Was ist der Rest?</span><select class="inp" name="g">
+        <option value="Skonto/Rundung">${aus ? 'Skonto / Rundung (keine Kosten)' : 'Rundung / Kleindifferenz'}</option>
+        ${aus ? '<option value="Mahngebühr">Mahngebühr (zählt als Kosten)</option><option value="Gebühr">Gebühr / Porto (zählt als Kosten)</option>' : '<option value="Überzahlung">Überzahlung des Kunden (bleibt bei uns)</option>'}
+        <option value="Sonstiges">Sonstiges</option></select></label>
+      ${aus ? `<label class="fld"><span>Kostenart (bei Gebühr)</span><select class="inp" name="ka">${KOSTENARTEN.map(k => `<option ${k === 'sonstige Kosten' ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>` : ''}
+      <label class="fld full"><span>Notiz (optional)</span><input class="inp" name="t" placeholder="z. B. Mahngebühr zu 522006592"></label>
+    </form>`,
+    onOk: async d => {
+      const fd = Object.fromEntries(new FormData($('form', d))), kosten = aus && /gebühr/i.test(fd.g);
+      const vermerk = 'Rest ausgebucht' + (kosten ? ' (Kosten)' : '') + ': ' + fd.g + (fd.t ? ' – ' + fd.t.replace(/·/g, '-') : '');
+      const alt = String(b.notiz || '').replace(RESTAUS_RX, '').replace(/^\s*·\s*|\s*·\s*$/g, '').trim();
+      await DB.update('bank', b.id, { notiz: [alt, vermerk].filter(Boolean).join(' · '), ...(kosten ? { kostenart: fd.ka || 'sonstige Kosten' } : {}) });
+      buildIdx(); toast('Rest ausgebucht.'); closeSheet(); if (fertig) setTimeout(fertig, 0); return false;   /* Buchung danach frisch öffnen */
+    } });
+}
 async function bankDetail(id) {
   buildIdx();
   const b = S.bank.find(x => x.id === id); if (!b) return;
@@ -261,6 +282,8 @@ async function bankDetail(id) {
     </div>
     <h4>Zugeordnete Rechnungen</h4>
     ${st.zuordnungen.length ? `<ul class="pays">${st.zuordnungen.map(z => { const r = S.rechnungen.find(x => x.id === z.rechnung_id); return `<li><span><a href="#" data-r="${z.rechnung_id}">${esc((r?.nummer || '') + ' · ' + (r?.partner || ''))}</a>${z.notiz ? ' <small class="muted">· ' + esc(z.notiz) + '</small>' : ''}</span><b>${fmtE(z.betrag)}</b><button class="icon-btn" data-delz="${z.id}" title="Lösen">✕</button></li>`; }).join('')}</ul>` : '<p class="muted small">Noch keine.</p>'}
+    ${st.restAusgebucht ? `<p class="note small">✓ ${esc((String(b.notiz || '').match(RESTAUS_RX) || [''])[0])} · ${fmtE(st.restAusgebucht)} <button class="btn sm" data-a="restzurueck">Rückgängig</button></p>`
+      : st.key === 'teilweise' ? `<p class="note small">Rest <b>${fmtE(st.rest)}</b> ist keiner Rechnung zugeordnet (z. B. Skonto, Rundung, Mahngebühr). <button class="btn sm" data-a="restaus">Rest ausbuchen</button></p>` : ''}
     ${st.rest > 0.005 && !b.art ? `<h4>Passende Rechnungen ${st.zuordnungen.length ? '(Rest ' + fmtE(st.rest) + ')' : ''}</h4>
       <p class="small muted">Eine Buchung für mehrere Rechnungen (Sammelzahlung)? Rechnungen anhaken und unten „Ausgewählte zuordnen“.</p>
       ${vs.length ? `<div class="tw"><table class="tb"><tbody>${vs.map((x, i) => `<tr><td><input type="checkbox" data-sel="${x.r.id}" aria-label="auswählen"></td><td class="small">${x.r.richtung === 'ausgang' ? '↗' : '↘'} ${(+x.r.brutto || 0) < 0 ? 'Gutschrift' : 'Rechnung'}</td><td class="mono">${esc(x.r.nummer || '–')}</td><td>${fmtD(x.r.datum)}</td><td>${esc(x.r.partner || '')}</td><td class="num">${fmtE(x.r.brutto)}${x.st.offen > 0.005 && x.st.offen < Math.abs(x.r.brutto) - 0.005 ? `<div class="small muted">offen ${fmtE(x.st.offen)}</div>` : ''}</td><td>${badge(x.st)}</td><td class="small">${esc(x.why.join(', '))}</td><td><button class="btn sm primary" data-v="${i}">Zuordnen</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted small">Kein klarer Treffer. Rechnung suchen:</p>'}
@@ -289,6 +312,8 @@ async function bankDetail(id) {
   d.addEventListener('change', e => { const c = e.target.closest('[data-sel]'); if (!c) return; const r = S.rechnungen.find(x => x.id === c.dataset.sel); if (c.checked && r) sel.set(r.id, r); else sel.delete(c.dataset.sel); selZeigen(); });
   $('#bArt', d).onchange = async e => {
     const v = e.target.value || null;
+    /* „Ignorieren“ bei einer schon zugeordneten Buchung mit kleinem Rest: nur den Rest ausbuchen, die Zuordnungen bleiben */
+    if (v === 'ignoriert' && st.zuordnungen.length && st.key === 'teilweise') { e.target.value = b.art || ''; return restAusbuchen(b, st.rest, again); }
     // „Gehört zu 2025“, Privat, Umbuchung, Ignorieren: hängt die Buchung (z. B. automatisch) an Rechnungen, diese Zuordnungen lösen
     if (v && v !== 'sumup' && st.zuordnungen.length) {
       if (!confirm(`Diese Buchung ist ${st.zuordnungen.length} Rechnung(en) zugeordnet. Zuordnung lösen und als „${(B_ST[v] || [v])[0]}“ markieren?`)) { e.target.value = b.art || ''; return; }
@@ -319,6 +344,8 @@ async function bankDetail(id) {
       for (const r of l) { const f = fluss(r); if (f > 0 && rest <= 0.005) break; const a = anteil(r, rest); await zuordnen(r, b, 'bank', a, notiz); rest = r2(rest - sg * dirR(r) * a); }
       again(); return toast(l.length + ' Rechnungen zugeordnet.');
     }
+    if (t.closest('[data-a=restaus]')) return restAusbuchen(b, st.rest, again);
+    if (t.closest('[data-a=restzurueck]')) { await DB.update('bank', id, { notiz: String(b.notiz || '').replace(RESTAUS_RX, '').replace(/^\s*·\s*|\s*·\s*$/g, '').trim() || null }); buildIdx(); toast('Rest wieder offen.'); return again(); }
     if (t.closest('[data-a=kika]')) {
       t.disabled = true; t.textContent = '✨ KI überlegt …';
       try { const x = await DB.aiJson(`Ordne diesen Bankabgang einer Kfz-Werkstatt einer Kostenart zu. Name: ${b.gegenpartei}. Verwendungszweck: ${b.zweck}. Betrag: ${b.betrag} EUR.

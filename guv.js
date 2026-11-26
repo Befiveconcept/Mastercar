@@ -39,6 +39,7 @@ function guvDaten(jahr, mitOhneBeleg) {
   if (mitOhneBeleg) {
     buildIdx();
     S.bank.forEach(b => { if (inJ(b.datum) && personalErstattung(b)) { put('Personalkosten', mon(b.datum), +b.betrag, { t: 'b', id: b.id }); return; }   /* AAG-Erstattung der Krankenkasse mindert die Personalkosten */
+      if (inJ(b.datum) && b.betrag < 0 && !b.art && restAusKosten(b) && (IDX.zByB.get(b.id) || []).length) { const ra = bStatus(b).restAusgebucht || 0; if (ra > 0.005) put((KOSTENARTEN.includes(b.kostenart) ? b.kostenart : 'sonstige Kosten'), mon(b.datum), -ra, { t: 'b', id: b.id }); return; }   /* ausgebuchter Rest als Kosten (z. B. Mahngebühr) */
       if (!inJ(b.datum) || b.betrag >= 0 || b.art || (IDX.zByB.get(b.id) || []).length || bankNeutral(b)) return;   /* Darlehen/Tilgung, Vorjahr, Rücklastschrift sind keine Kosten */
       if (istFinanzamt(b)) { put('§FA', mon(b.datum), -b.betrag, { t: 'b', id: b.id }); return; } put((KOSTENARTEN.includes(b.kostenart) ? b.kostenart : OHNE), mon(b.datum), +b.betrag, { t: 'b', id: b.id }); });
     S.kasse.forEach(k => { if (!inJ(k.datum) || k.betrag >= 0 || /umbuchung|privat|ignor/i.test(k.kostenart || '') || (IDX.zByK.get(k.id) || []).length) return; /* Bargeld aufs Konto ist kein Aufwand */ put((KOSTENARTEN.includes(k.kostenart) ? k.kostenart : OHNE), mon(k.datum), +k.betrag, { t: 'k', id: k.id }); });

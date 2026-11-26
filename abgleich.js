@@ -198,6 +198,10 @@ const B_ST = {
   offen: ['Nicht zugeordnet', 'st-open'], zugeordnet: ['Zugeordnet', 'st-ok'], teilweise: ['Teilweise zugeordnet', 'st-warn'], sumup: ['SumUp-Auszahlung', 'st-info'],
   privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], vorjahr: ['Gehört zu 2025', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
 };
+/* Rest einer Buchung ausgebucht: Vermerk in bank.notiz („Rest ausgebucht: …“ bzw. „Rest ausgebucht (Kosten): …“) */
+const RESTAUS_RX = /Rest ausgebucht( \(Kosten\))?: [^·]*/;
+const restAus = b => RESTAUS_RX.test(b.notiz || '');
+const restAusKosten = b => /Rest ausgebucht \(Kosten\)/.test(b.notiz || '');
 function bStatus(b) {
   // Verrechnung: eine Buchung kann Rechnungen UND Gutschriften abdecken (z. B. Altteile-Gutschriften minus Rechnungen).
   // Geldfluss je Zuordnung: Ausgangsrechnung + / Eingangsrechnung − (Gutschrift mit negativem Betrag dreht das Vorzeichen)
@@ -208,6 +212,8 @@ function bStatus(b) {
   else if (auto && !(b.betrag < 0 && b.kostenart && !['rueck', 'gebuehr', 'durchlaufend'].includes(auto))) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
   else if (!zs.length) key = b.betrag < 0 && b.kostenart ? 'kosten' : 'offen';
   else key = rest <= 0.01 ? 'zugeordnet' : 'teilweise';
+  /* Kleiner Rest von Hand ausgebucht (Skonto, Rundung, Mahngebühr …) → gilt als fertig zugeordnet */
+  if (key === 'teilweise' && restAus(b)) return { key: 'zugeordnet', label: B_ST.zugeordnet[0], cls: B_ST.zugeordnet[1], hint: ['Rest ' + fmtE(rest) + ' ausgebucht', 'st-info'], rest: 0, restAusgebucht: rest, zuordnungen: zs };
   /* Rest gehört laut Verwendungszweck zu einer Rechnung aus einem Vorjahr (R25-…), die nicht in der App ist → erledigt */
   const vj = key === 'teilweise' && (String(b.zweck || '').match(/\bR(1\d|2[0-5])-?\d{3,5}\b/gi) || []);
   if (vj && vj.length) return { key: 'zugeordnet', label: B_ST.zugeordnet[0], cls: B_ST.zugeordnet[1], hint: ['Rest ' + fmtE(rest) + ' für ' + [...new Set(vj)].join(', ') + ' (Vorjahr)', 'st-info'], rest: 0, vorjahrRest: rest, zuordnungen: zs };
