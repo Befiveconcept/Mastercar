@@ -161,7 +161,7 @@ function korbRender(auf) {
     <p class="small muted">Weitere Dateien einfach ins Fenster ziehen – sie kommen dazu.</p>
     ${ablageMoeglich() ? (ABLAGE ? `<p class="small">📁 Umbenannte Belege kommen in: <b>${esc(ABLAGE.name)}</b></p>`
       : `<div class="warn small">Noch kein OneDrive-Ordner gewählt – die Belege würden nur in der App liegen. <button class="btn sm" data-act="ablageWahl" data-art="eingang">📁 Ordner wählen</button></div>`) : ''}
-    ${ablageMoeglich() ? (ABLAGE_A ? `<p class="small">📁 Ausgangsrechnungen (Originalname) kommen in: <b>${esc(ABLAGE_A.name)}</b></p>`
+    ${ablageMoeglich() && AUSGANG_ABLAGE ? (ABLAGE_A ? `<p class="small">📁 Ausgangsrechnungen (Originalname) kommen in: <b>${esc(ABLAGE_A.name)}</b></p>`
       : `<div class="note small">Für eure eigenen Ausgangsrechnungen ist noch kein Ordner gewählt. <button class="btn sm" data-act="ablageWahl" data-art="ausgang">📁 Ordner Rechnungsausgang</button></div>`) : ''}
     <div class="btnrow"><button class="btn primary" data-act="korbGo">✓ Alle ${KORB.length} verarbeiten</button><button class="btn" data-act="korbPick">＋ Dateien</button><button class="btn" data-act="korbLeer">Leeren</button></div>`;
 }
@@ -183,9 +183,9 @@ async function eingangDrop(fileList) {
   const tables = files.filter(isTable);
   if (tables.length) { tables.forEach(f => importAuto(f)); }
   const docs = files.filter(f => !isTable(f)); if (!docs.length) return;
-  busy(true, (ABLAGE || ABLAGE_A) ? 'Ordner-Zugriff … falls oben im Browser gefragt wird: „Bearbeiten zulassen“' : 'Lese Belege …');
+  busy(true, (ABLAGE || (AUSGANG_ABLAGE && ABLAGE_A)) ? 'Ordner-Zugriff … falls oben im Browser gefragt wird: „Bearbeiten zulassen“' : 'Lese Belege …');
   // gleich beim Klick fragen – nur dann darf der Browser um Erlaubnis bitten; beide Ordner gleichzeitig, höchstens 15 s warten
-  const [ablage, ablageA] = await Promise.all([ablageKurz('eingang'), ablageKurz('ausgang')]), logStart = ABLAGE_LOG.length;
+  const [ablage, ablageA] = await Promise.all([ablageKurz('eingang'), AUSGANG_ABLAGE ? ablageKurz('ausgang') : null]), logStart = ABLAGE_LOG.length;
   busy(true, 'Lese Belege …');
   const belege = []; for (const f of docs) { try { belege.push(...(await fileToBelege(f)).map(b => ({ ...b, quelle: f }))); } catch (e) { console.warn(e); } }   // quelle = Originaldatei (für „zurück in den Stapel“)
   if (!belege.length) { busy(false); return toast('Kein Beleg (PDF/Bild) gefunden.'); }

@@ -29,12 +29,15 @@ async function ausgangNamenAngleichen() {
 
 /* Beleg speichern: Cloud-Speicher + (nur Eingangsrechnungen) Ablage-Ordner. Gibt {datei, dateiname} zurück. */
 // Ausgangsrechnungen behalten ihren Originalnamen (so wie die Werkstatt-Software sie erzeugt) und kommen in den Ordner „Rechnungsausgang“.
+/* Ausgangsrechnungen NICHT zusätzlich in einen Ordner legen (macht ihr derzeit von Hand). Auf true setzen, um es wieder einzuschalten. */
+const AUSGANG_ABLAGE = false;
 async function belegSpeichern(r, file) {
   const dir = r.richtung === 'ausgang' ? 'ausgang' : 'eingang';
   const name = dir === 'ausgang' ? ausgangName(r, dateiEndung(file.name, file.type), file.name) : belegName(r, dateiEndung(file.name, file.type));
   const datei = `${dir}/${(r.datum || todayISO()).slice(0, 4)}/${uid()}-${safeName(name)}`;
   await DB.upload(datei, file);
   let dateiname = name, _ordner = false, _grund = '';
+  if (dir === 'ausgang' && !AUSGANG_ABLAGE) return { datei, dateiname, _ordner, _grund };   /* Rechnungsausgang wird derzeit von Hand abgelegt */
   /* Ordner-Ablage (z. B. OneDrive) darf das Verarbeiten nie aufhalten: höchstens 20 Sekunden, sonst ohne Ordner weiter */
   const zeit = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
   const ord = await zeit(ablageOrdner(false, dir), 10000, 'Ordner antwortet nicht').catch(() => null);
@@ -159,7 +162,7 @@ async function ablageUmbenennen(r, alt) {
 
 // Alle vorhandenen Belege (Rechnungseingang mit Datei) in den Ordner legen, die dort noch fehlen
 async function ablageAlle() {
-  const dirE = await ablageOrdner(true, 'eingang'), dirA = await ablageOrdner(true, 'ausgang');
+  const dirE = await ablageOrdner(true, 'eingang'), dirA = AUSGANG_ABLAGE ? await ablageOrdner(true, 'ausgang') : null;
   if (!dirE && !dirA) return toast('Bitte zuerst einen Ablage-Ordner wählen und den Zugriff erlauben.');
   const liste = S.rechnungen.filter(r => r.datei && (r.richtung === 'ausgang' ? dirA : dirE));
   let neu = 0, da = 0, fehl = 0;
