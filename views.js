@@ -494,7 +494,9 @@ function viewBank() {
   if (stat.length) list = list.filter(x => stat.some(k => FILT_B_TEST[k](x)));
   const q = (UI.q.bank || '').toLowerCase().trim(); if (q) list = list.filter(x => q.split(/\s+/).every(w => [x.b.gegenpartei, x.b.zweck, x.b.kostenart, x.b.iban, fmtE(x.b.betrag), x.b.betrag, fmtD(x.b.datum)].join(' ').toLowerCase().includes(w)));
   list.sort((a, b) => b.b.datum.localeCompare(a.b.datum));
-  const bRe = x => x.st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean).map(r => (r.nummer || '') + ' ' + (r.partner || '')).join(' ') || x.b.kostenart || '';
+  /* Rechnungen einer Buchung – bei SumUp-Auszahlungen die Rechnungen der enthaltenen Kartenzahlungen */
+  const bRs = (b, st) => b.art === 'sumup' ? sumupPosten(b).flatMap(p => p.rs) : st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean);
+  const bRe = x => bRs(x.b, x.st).map(r => (r.nummer || '') + (x.b.art === 'sumup' ? '' : ' ' + (r.partner || ''))).join(' ') || x.b.kostenart || '';
   const cols = [colDat('datum', 'Datum', x => x.b.datum), colTxt('name', 'Name', x => x.b.gegenpartei), colTxt('zweck', 'Verwendungszweck', x => zweckKurz(x.b.zweck)),
     colNum('betrag', 'Betrag', x => x.b.betrag), colTxt('re', 'Kostenart / Rechnung', bRe), { k: 'st', l: 'Status', v: x => x.st.label, sel: true }];
   const base = list; list = colApply('bank', list, cols);
@@ -506,9 +508,9 @@ function viewBank() {
     <select class="inp" data-chg="period">${PERIODS.map(p => `<option value="${p[0]}" ${UI.period === p[0] ? 'selected' : ''}>${p[1]}</option>`).join('')}</select></div>
   <div class="sumline">${list.length} Umsätze · Eingänge ${fmtE(sum(list.filter(x => x.b.betrag > 0), x => x.b.betrag))} · Ausgänge ${fmtE(sum(list.filter(x => x.b.betrag < 0), x => x.b.betrag))}${colReset('bank')}</div>
   <div class="tw"><table class="tb click">${colHead('bank', cols, base)}<tbody>
-  ${list.slice(0, lim).map(({ b, st }) => { const rs = st.zuordnungen.map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean);
+  ${list.slice(0, lim).map(({ b, st }) => { const rs = bRs(b, st), su = b.art === 'sumup';
     return `<tr data-act="bank" data-id="${b.id}"><td>${fmtD(b.datum)}</td><td>${esc(b.gegenpartei || '')}</td><td class="zweck" title="${esc(b.zweck || '')}">${esc(zweckKurz(b.zweck))}</td><td class="num ${b.betrag < 0 ? 'neg' : 'pos'}">${fmtE(b.betrag)}</td>
-    <td class="small">${rs.length ? rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ') : esc(b.kostenart || '')}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Keine Bankumsätze für diesen Filter.</td></tr>'}
+    <td class="small">${rs.length ? (su ? esc(rs.map(r => r.nummer || '').join(', ')) : rs.map(r => esc((r.nummer || '') + ' ' + (r.partner || ''))).join(' · ')) : esc(b.kostenart || '')}</td><td>${badge(st)}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">Keine Bankumsätze für diesen Filter.</td></tr>'}
   </tbody></table></div>${moreBtn('bank', list.length, lim)}`;
 }
 

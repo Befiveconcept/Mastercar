@@ -198,6 +198,11 @@ const B_ST = {
   offen: ['Nicht zugeordnet', 'st-open'], zugeordnet: ['Zugeordnet', 'st-ok'], teilweise: ['Teilweise zugeordnet', 'st-warn'], sumup: ['SumUp-Auszahlung', 'st-info'],
   privat: ['Privat', 'st-info'], intern: ['Umbuchung', 'st-info'], ignoriert: ['Ignoriert', 'st-info'], vorjahr: ['Gehört zu 2025', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], kosten: ['Kosten ohne Beleg', 'st-info']
 };
+/* SumUp-Auszahlung auf dem Konto → die enthaltenen Kartenzahlungen und ihre Ausgangsrechnungen (nur Anzeige, die Zuordnung hängt an der Kartenzahlung) */
+function sumupPosten(b) {
+  return S.sumup.filter(s => s.bank_id === b.id).sort((x, y) => (x.datum || '').localeCompare(y.datum || ''))
+    .map(s => ({ s, rs: ((IDX.zByS && IDX.zByS.get(s.id)) || []).map(z => S.rechnungen.find(r => r.id === z.rechnung_id)).filter(Boolean) }));
+}
 /* Rest einer Buchung ausgebucht: Vermerk in bank.notiz („Rest ausgebucht: …“ bzw. „Rest ausgebucht (Kosten): …“) */
 const RESTAUS_RX = /Rest ausgebucht( \(Kosten\))?: [^·]*/;
 const restAus = b => RESTAUS_RX.test(b.notiz || '');
@@ -595,6 +600,14 @@ async function autoAbgleich() {
       const days = [...new Set(c.map(s => s.auszahlung_datum))], hit = days.find(d => Math.abs(sum(c.filter(s => s.auszahlung_datum === d), netto) - b.betrag) <= 0.05);
       if (hit) { for (const s of c.filter(s => s.auszahlung_datum === hit)) { await DB.update('sumup', s.id, { bank_id: b.id }); links++; } break; }
     }
+    if (S.sumup.some(s => s.bank_id === b.id)) continue;
+    /* 3) Export ohne Auszahlungsdatum (Umsätze ganz frisch exportiert): Umsätze eines Tages bzw. aufeinanderfolgender Tage 1–4 Tage vor der Gutschrift, deren Netto genau die Auszahlung ergibt */
+    const frei = S.sumup.filter(s => !s.bank_id && sumOk(s) && !s.auszahlung_datum && s.datum < b.datum && daysBetween(s.datum, b.datum) <= 4);
+    const tage = [...new Set(frei.map(s => s.datum))].sort();
+    let treffer = null;
+    for (let i = tage.length - 1; i >= 0 && !treffer; i--) for (let j = i; j >= 0 && !treffer; j--) {
+      const c = frei.filter(s => s.datum >= tage[j] && s.datum <= tage[i]); if (Math.abs(sum(c, netto) - b.betrag) <= 0.02) treffer = c; }
+    if (treffer) for (const s of treffer) { await DB.update('sumup', s.id, { bank_id: b.id, auszahlung_datum: b.datum }); links++; }
   }
   buildIdx();
   await zahlartNachziehen().catch(e => console.warn(e));   // Zahlart = wie tatsächlich bezahlt (EC/SumUp, Überweisung/SEPA, bar)
