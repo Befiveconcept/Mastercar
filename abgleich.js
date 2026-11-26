@@ -207,6 +207,9 @@ function bStatus(b) {
   else if (auto && !(b.betrag < 0 && b.kostenart && auto !== 'rueck')) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
   else if (!zs.length) key = b.betrag < 0 && b.kostenart ? 'kosten' : 'offen';
   else key = rest <= 0.01 ? 'zugeordnet' : 'teilweise';
+  /* Rest gehört laut Verwendungszweck zu einer Rechnung aus einem Vorjahr (R25-…), die nicht in der App ist → erledigt */
+  const vj = key === 'teilweise' && (String(b.zweck || '').match(/\bR(1\d|2[0-5])-?\d{3,5}\b/gi) || []);
+  if (vj && vj.length) return { key: 'zugeordnet', label: B_ST.zugeordnet[0], cls: B_ST.zugeordnet[1], hint: ['Rest ' + fmtE(rest) + ' für ' + [...new Set(vj)].join(', ') + ' (Vorjahr)', 'st-info'], rest: 0, vorjahrRest: rest, zuordnungen: zs };
   return { key, label: B_ST[key][0], cls: B_ST[key][1], rest: Math.max(0, rest), zuordnungen: zs };
 }
 function sStatus(s) {
@@ -421,6 +424,9 @@ async function autoAbgleich() {
         const nb = nachbarn(r0, pool).filter(r => eq(restR(r), restPay) && (!r.datum || !pay.datum || Math.abs(daysBetween(r.datum, pay.datum)) <= 7));
         if (nb.length === 1) { add(nb[0], pay, kind, restPay, `Nummer vertippt (${r0.nummer} statt ${nb[0].nummer}), Betrag passt`); return true; }
       }
+      /* Stehen weitere eigene Rechnungsnummern im Text (z. B. „R25-1991, R26-0061“, die 2025er ist nicht in der App), bekommt diese Rechnung nur ihren offenen Betrag – der Rest gehört zu den anderen */
+      const nn = s => String(s || '').replace(/\W/g, '').toUpperCase(), weitere = [...new Set((text.match(/\bR\d{2}-?\d{3,5}\b/gi) || []).map(nn))].filter(n => n !== nn(r0.nummer));
+      if (weitere.length) { const o = restR(r0); if (o > 0.005) add(r0, pay, kind, Math.min(o, restPay), 'Rechnungsnummer im Text (Rest für ' + weitere.join(', ') + ')'); return true; }
       add(r0, pay, kind, restPay, 'Rechnungsnummer im Text'); return true;
     }
     if (byNr.length > 1) {
