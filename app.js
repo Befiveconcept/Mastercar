@@ -236,6 +236,7 @@ Object.assign(A, {
     catch (e) { busy(false); toast(aiErr(e)); regelForm({ text: t.trim(), kurz: t.trim(), quelle: 'bank', richtung: 'beide', suche: [], oder: [], aktion: 'ignorieren' }, null); }
   },
   regelEdit: d => regelForm(regeln()[+d.i], +d.i),
+  firmaPosten: d => firmaPosten(d.k),
   einstTab: d => { UI.einstTab = d.t; render(); window.scrollTo(0, 0); },
   firmaKaNeu: async () => {
     const n = (($('#fkName') || {}).value || '').trim(), ka = ($('#fkKa') || {}).value || '', key = firmaKey(n);

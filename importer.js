@@ -335,7 +335,9 @@ function firmaKostenart(name) {
   return hit ? hit[1].k : null;
 }
 // Vorschlag: zuerst die feste Zuordnung der Firma, dann lernen aus bisherigen Belegen desselben Partners, sonst Stichwort-Regeln
+const FA_RX = /finanzamt|steuerverwaltung|bundeskasse|steuerkasse/i;   /* Steuern: keine Kostenart, die GuV behandelt sie gesondert (wie istFinanzamt in guv.js) */
 function kostenartVorschlagVoll(text, partner) {
+  if (FA_RX.test(partner || '')) return null;
   const fk = firmaKostenart(partner || text); if (fk) return { k: fk, u: '' };
   const tok = nameTokens(partner || text).slice(0, 2);
   if (tok.length) {

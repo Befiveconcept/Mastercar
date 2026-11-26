@@ -128,6 +128,7 @@ function firmenKa() {
     const name = Object.entries(f.namen).sort((a, b) => b[1] - a[1])[0][0], fest = m[f.key] && m[f.key].k;
     const haupt = fest || (Object.entries(f.ka).filter(([k]) => k).sort((a, b) => b[1] - a[1])[0] || [''])[0];
     const andere = Object.entries(f.ka).filter(([k]) => k !== haupt);
+    if (FA_RX.test(name)) return { ...f, name, fest: false, haupt: '§FA', andere: [], summe: r2(f.summe) };   /* Steuern: eigene Gruppe, keine Kostenart */
     return { ...f, name, fest: !!fest, haupt, andere, summe: r2(f.summe) };
   });
 }
@@ -150,12 +151,25 @@ async function firmaKaSetzen(key, name, ka) {
   } finally { busy(false); }
   buildIdx(); render(); toast(`${name}: ${ka || 'keine Kostenart'} – ${rU.length + bU.length} Beleg(e) umgestellt.`);
 }
+// Fenster: alle Posten einer Firma (Klick auf eine Zeile öffnet Rechnung bzw. Bankumsatz)
+function firmaPosten(key) {
+  buildIdx(); const f = firmenKa().find(x => x.key === key), { r, b } = firmaBelege(key), name = f ? f.name : key;
+  const l = [...r.map(x => ({ t: 'r', d: x.datum || '', x })), ...b.map(x => ({ t: 'b', d: x.datum || '', x }))].sort((a, c) => c.d.localeCompare(a.d));
+  const zeile = ({ t, x }) => t === 'r'
+    ? `<tr data-act="rechnung" data-id="${x.id}"><td>${fmtD(x.datum)}</td><td>Rechnung ${esc(x.nummer || '')}<div class="small muted">${esc((x.beschreibung || '').slice(0, 70))}</div></td><td class="small">${esc(x.kostenart || '–')}${x.unterkonto ? ' · ' + esc(x.unterkonto) : ''}</td><td class="num">${fmtE(x.brutto)}</td><td>${badge(rStatus(x))}</td></tr>`
+    : `<tr data-act="bank" data-id="${x.id}"><td>${fmtD(x.datum)}</td><td>Bank ohne Beleg<div class="small muted">${esc(String(x.zweck || '').replace(/^.*SVWZ\+/, '').slice(0, 70))}</div></td><td class="small">${esc(x.kostenart || '–')}</td><td class="num">${fmtE(x.betrag)}</td><td>${badge(bStatus(x))}</td></tr>`;
+  openSheet({ title: name, wide: true, noOk: true, html: `
+    <p class="small muted">${r.length} Rechnung${r.length === 1 ? '' : 'en'} · ${b.length} Abbuchung${b.length === 1 ? '' : 'en'} ohne Beleg · zusammen ${fmtE(r2(sum(r, x => Math.abs(+x.brutto || 0)) + sum(b, x => Math.abs(x.betrag))))} brutto${f && f.fest ? ' · fest zugeordnet: <b>' + esc(f.haupt) + '</b>' : ''}. Klick auf eine Zeile öffnet den Posten.</p>
+    ${l.length ? `<div class="tw"><table class="tb click"><thead><tr><th>Datum</th><th>Posten</th><th>Kostenart</th><th class="num">Betrag</th><th>Status</th></tr></thead><tbody>${l.map(zeile).join('')}</tbody></table></div>` : '<div class="empty small">Noch keine Posten – die Zuordnung gilt für künftige Belege.</div>'}` });
+}
 function firmenKaHtml() {
   buildIdx();
   const q = norm(UI.q.fk || ''), alle = firmenKa(), l = alle.filter(f => !q || norm(f.name).includes(q) || norm(f.haupt).includes(q));
   const opt = v => KOSTENARTEN.map(k => `<option ${k === v ? 'selected' : ''}>${esc(k)}</option>`).join('');
-  const gruppen = KOSTENARTEN.concat(['']).map(k => [k, l.filter(f => f.haupt === k).sort((a, b) => b.summe - a.summe)]).filter(([, x]) => x.length);
-  const zeile = f => `<tr><td>${esc(f.name)}${f.fest ? ' <span class="badge st-ok" title="Fest zugeordnet – gilt auch für neue Belege">fest</span>' : ''}
+  const gruppen = KOSTENARTEN.concat(['', '§FA']).map(k => [k, l.filter(f => f.haupt === k).sort((a, b) => b.summe - a.summe)]).filter(([, x]) => x.length);
+  const nameZ = f => `<button type="button" class="lnk" data-act="firmaPosten" data-k="${esc(f.key)}" title="Posten dieser Firma anzeigen">${esc(f.name)}</button>`;
+  const zeile = f => f.haupt === '§FA' ? `<tr><td>${nameZ(f)}</td><td class="num small">${[f.nR ? f.nR + ' Rechn.' : '', f.nB ? f.nB + ' Bank' : ''].filter(Boolean).join(' · ')}</td><td class="num">${fmtE(f.summe)}</td>
+      <td class="small muted">keine Kostenart – USt läuft durch, Lohnsteuer zählt als Personalkosten</td></tr>` : `<tr><td>${nameZ(f)}${f.fest ? ' <span class="badge st-ok" title="Fest zugeordnet – gilt auch für neue Belege">fest</span>' : ''}
       ${f.andere.length ? `<div class="small muted">teils anders: ${f.andere.map(([k, n]) => n + '× ' + esc(k || 'ohne')).join(', ')}</div>` : ''}</td>
       <td class="num small">${[f.nR ? f.nR + ' Rechn.' : '', f.nB ? f.nB + ' Bank' : ''].filter(Boolean).join(' · ') || '<span class="muted">noch keine</span>'}</td><td class="num">${fmtE(f.summe)}</td>
       <td><select class="inp" data-chg="firmaKa" data-k="${esc(f.key)}" data-n="${esc(f.name)}" aria-label="Kostenart für ${esc(f.name)}"><option value="">– keine –</option>${opt(f.haupt)}</select></td></tr>`;
@@ -166,7 +180,7 @@ function firmenKaHtml() {
       <select class="inp" id="fkKa"><option value="">Kostenart wählen …</option>${opt('')}</select><button class="btn primary" data-act="firmaKaNeu">Zuordnen</button></div>
   </section>
   <div class="toolbar">${searchIn('fk', 'Firma oder Kostenart suchen …')}<span class="sp"></span><span class="small muted">${alle.length} Firmen</span></div>
-  ${gruppen.map(([k, x]) => `<details class="card" data-auf="fk:${esc(k)}" ${q || (UI.auf || {})['fk:' + k] ? 'open' : ''}><summary><b>${esc(k || 'Ohne Kostenart')}</b> · ${x.length} ${x.length === 1 ? 'Firma' : 'Firmen'} · ${fmtE(r2(sum(x, f => f.summe)))}</summary>
+  ${gruppen.map(([k, x]) => `<details class="card" data-auf="fk:${esc(k)}" ${q || (UI.auf || {})['fk:' + k] ? 'open' : ''}><summary><b>${esc(k === '§FA' ? 'Steuern ans Finanzamt' : k || 'Ohne Kostenart')}</b> · ${x.length} ${x.length === 1 ? 'Firma' : 'Firmen'} · ${fmtE(r2(sum(x, f => f.summe)))}</summary>
     <div class="tw"><table class="tb"><thead><tr><th>Firma</th><th class="num">Belege</th><th class="num">Summe brutto</th><th>Kostenart</th></tr></thead><tbody>${x.map(zeile).join('')}</tbody></table></div></details>`).join('') || '<div class="empty small">Keine Firma gefunden.</div>'}`;
 }
 function rgAusForm(d, g) {
