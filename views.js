@@ -700,8 +700,11 @@ async function dokHochladen(files) {
 function viewEinst() {
   const imps = [...S.importe].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const ART = { ausgang: 'Rechnungsausgang', sumup: 'SumUp', bank: 'Bank', eingang: 'Eingang' };
-  return `
-  <div class="toolbar"><h1>Einstellungen</h1></div>
+  const TABS = [['allg', 'Allgemein'], ['firmen', 'Kostenarten je Firma']], t = UI.einstTab === 'firmen' ? 'firmen' : 'allg';
+  const kopf = `<div class="toolbar"><h1>Einstellungen</h1></div>
+  <div class="chips ausw-tabs" role="tablist">${TABS.map(([k, l]) => `<button class="chip ${k === t ? 'on' : ''}" role="tab" aria-selected="${k === t}" data-act="einstTab" data-t="${k}">${l}</button>`).join('')}</div>`;
+  if (t === 'firmen') return kopf + firmenKaHtml();
+  return kopf + `
   <div class="grid2">
   <section class="card"><h3>Allgemein</h3>
     <label class="fld"><span>Kundenrechnungen sind überfällig ab … Tagen nach Rechnungsdatum</span><input class="inp" type="number" min="0" max="120" value="${ZIEL_TAGE()}" data-chg="ziel"></label>

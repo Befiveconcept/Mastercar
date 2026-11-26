@@ -326,8 +326,17 @@ const KOSTEN_REGELN = [
   [/werbung|google ads|facebook|marketing|anzeige/, 'Werbe-/Reisekosten', 'Werbekosten'],
   [/zinsen|darlehen|kredit/, 'Zinsaufwand', ''],
 ];
-// Vorschlag: zuerst lernen aus bisherigen Belegen desselben Partners, sonst Stichwort-Regeln
+/* Feste Kostenart je Firma (Einstellungen → Kostenarten je Firma), gespeichert in einstellungen.firma_kostenart = { schlüssel: { k, name } } */
+const firmaKey = s => nameTokens(s || '').slice(0, 2).join(' ');
+const firmaKaMap = () => { const m = S.einstellungen.firma_kostenart; return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; };
+function firmaKostenart(name) {
+  const tk = nameTokens(name || ''); if (!tk.length) return null;
+  const hit = Object.entries(firmaKaMap()).filter(([key, v]) => v && v.k && key && key.split(' ').every(w => tk.includes(w))).sort((a, b) => b[0].length - a[0].length)[0];
+  return hit ? hit[1].k : null;
+}
+// Vorschlag: zuerst die feste Zuordnung der Firma, dann lernen aus bisherigen Belegen desselben Partners, sonst Stichwort-Regeln
 function kostenartVorschlagVoll(text, partner) {
+  const fk = firmaKostenart(partner || text); if (fk) return { k: fk, u: '' };
   const tok = nameTokens(partner || text).slice(0, 2);
   if (tok.length) {
     const cnt = {};

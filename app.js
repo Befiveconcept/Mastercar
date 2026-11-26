@@ -236,6 +236,12 @@ Object.assign(A, {
     catch (e) { busy(false); toast(aiErr(e)); regelForm({ text: t.trim(), kurz: t.trim(), quelle: 'bank', richtung: 'beide', suche: [], oder: [], aktion: 'ignorieren' }, null); }
   },
   regelEdit: d => regelForm(regeln()[+d.i], +d.i),
+  einstTab: d => { UI.einstTab = d.t; render(); window.scrollTo(0, 0); },
+  firmaKaNeu: async () => {
+    const n = (($('#fkName') || {}).value || '').trim(), ka = ($('#fkKa') || {}).value || '', key = firmaKey(n);
+    if (!key) return toast('Bitte eine Firma eintippen.'); if (!ka) return toast('Bitte eine Kostenart wählen.');
+    const f = firmenKa().find(x => x.key === key); await firmaKaSetzen(key, f ? f.name : n, ka);
+  },
   regelDel: async d => { const l = regeln().slice(), g = l[+d.i]; if (!confirm('Regel löschen?\n' + (g.kurz || g.text || ''))) return; l.splice(+d.i, 1); await regelnSpeichern(l); render(); toast('Regel gelöscht – bereits eingeordnete Einträge bleiben, bis du sie änderst.'); },
   abgAlle: d => { UI.abgOpen = {}; if (d.v === '1') $$('details.abg').forEach(x => UI.abgOpen[x.dataset.abg] = true); render(); },
   neuAbgleich: async () => {
@@ -332,6 +338,7 @@ document.addEventListener('change', e => {
   if (c === 'filt') { const v = e.target.dataset.v; UI.filt[v] = e.target.value; UI.more[v] = 0; render(); }
   if (c === 'theme') themeSetzen(e.target.checked ? 'light' : 'dark');
   if (c === 'colF') { const d = e.target.dataset, st = UI.cs[d.v] = UI.cs[d.v] || {}; st.f = st.f || {}; st.f[d.k] = e.target.value; UI.more[d.v] = 0; render(); }
+  if (c === 'firmaKa') { const d = e.target.dataset; firmaKaSetzen(d.k, d.n, e.target.value).catch(x => { busy(false); toast('Fehler: ' + (x.message || x)); render(); }); }
   if (c === 'ziel') { DB.setSetting('zahlungsziel', Math.max(0, +e.target.value || 0)).then(render); }
   if (c === 'rstatus') {
     const r = S.rechnungen.find(x => x.id === e.target.dataset.id); if (!r) return;

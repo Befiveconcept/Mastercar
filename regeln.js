@@ -111,6 +111,64 @@ function regelForm(g, i) {
     $('#rgVor', d).innerHTML = `<b>${t.length}</b> Treffer${t.length ? ':' : ''}<ul class="pays">${t.slice(0, 8).map(y => `<li><span>${fmtD(y.datum)} · ${esc(y.gegenpartei || y.text || y.beschreibung || '')} <small class="muted">${esc((y.zweck || '').slice(0, 80))}</small></span><b>${fmtE(y.betrag)}</b></li>`).join('')}</ul>${t.length > 8 ? `<p class="muted">… und ${t.length - 8} weitere</p>` : ''}`; };
   d.addEventListener('input', vor); d.addEventListener('change', vor); vor();
 }
+/* ---------- Kostenarten je Firma (Einstellungen) ----------
+   Je Kostenart die Firmen, deren Eingangsrechnungen und Abbuchungen ohne Beleg aktuell darunter laufen.
+   Eine Änderung stellt alle Belege der Firma um und gilt fest auch für neue Belege (einstellungen.firma_kostenart). */
+function firmenKa() {
+  const F = new Map(), m = firmaKaMap();
+  const add = (name, ka, betrag, typ) => {
+    const key = firmaKey(name); if (!key) return;
+    let f = F.get(key); if (!f) F.set(key, f = { key, namen: {}, ka: {}, n: 0, nR: 0, nB: 0, summe: 0 });
+    f.namen[name] = (f.namen[name] || 0) + 1; f.ka[ka || ''] = (f.ka[ka || ''] || 0) + 1; f.n++; if (typ === 'r') f.nR++; else f.nB++; f.summe += Math.abs(+betrag || 0);
+  };
+  S.rechnungen.forEach(r => { if (r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art)) add(r.partner, r.kostenart, r.brutto, 'r'); });
+  S.bank.forEach(b => { if (b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length) add(b.gegenpartei, b.kostenart, b.betrag, 'b'); });
+  Object.entries(m).forEach(([key, v]) => { if (!F.has(key)) F.set(key, { key, namen: { [(v && v.name) || key]: 1 }, ka: {}, n: 0, nR: 0, nB: 0, summe: 0 }); });
+  return [...F.values()].map(f => {
+    const name = Object.entries(f.namen).sort((a, b) => b[1] - a[1])[0][0], fest = m[f.key] && m[f.key].k;
+    const haupt = fest || (Object.entries(f.ka).filter(([k]) => k).sort((a, b) => b[1] - a[1])[0] || [''])[0];
+    const andere = Object.entries(f.ka).filter(([k]) => k !== haupt);
+    return { ...f, name, fest: !!fest, haupt, andere, summe: r2(f.summe) };
+  });
+}
+// Belege einer Firma (gleicher Schlüssel wie in der Übersicht)
+function firmaBelege(key) {
+  return { r: S.rechnungen.filter(r => r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art) && firmaKey(r.partner) === key),
+    b: S.bank.filter(b => b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length && firmaKey(b.gegenpartei) === key) };
+}
+async function firmaKaSetzen(key, name, ka) {
+  buildIdx(); const { r, b } = firmaBelege(key), m = { ...firmaKaMap() };
+  const rU = r.filter(x => (x.kostenart || null) !== (ka || null)), bU = b.filter(x => (x.kostenart || null) !== (ka || null));
+  if ((rU.length || bU.length) && !confirm(`${name}: ${ka ? '„' + ka + '“' : 'keine Kostenart'}\n\n${rU.length} Rechnung(en) und ${bU.length} Abbuchung(en) ohne Beleg werden umgestellt.${ka ? '\nNeue Belege dieser Firma bekommen die Kostenart automatisch.' : ''}`)) { render(); return; }
+  busy(true, 'Umstellen …');
+  try {
+    const jobs = [...rU.map(x => () => DB.update('rechnungen', x.id, { kostenart: ka || null, unterkonto: ka && UNTERKONTEN(ka).includes(x.unterkonto) ? x.unterkonto : null })),
+      ...bU.map(x => () => DB.update('bank', x.id, { kostenart: ka || null }))];
+    for (let i = 0; i < jobs.length; i += 10) await Promise.all(jobs.slice(i, i + 10).map(f => f()));
+    if (ka) m[key] = { k: ka, name }; else delete m[key];
+    await DB.setSetting('firma_kostenart', m);
+  } finally { busy(false); }
+  buildIdx(); render(); toast(`${name}: ${ka || 'keine Kostenart'} – ${rU.length + bU.length} Beleg(e) umgestellt.`);
+}
+function firmenKaHtml() {
+  buildIdx();
+  const q = norm(UI.q.fk || ''), alle = firmenKa(), l = alle.filter(f => !q || norm(f.name).includes(q) || norm(f.haupt).includes(q));
+  const opt = v => KOSTENARTEN.map(k => `<option ${k === v ? 'selected' : ''}>${esc(k)}</option>`).join('');
+  const gruppen = KOSTENARTEN.concat(['']).map(k => [k, l.filter(f => f.haupt === k).sort((a, b) => b.summe - a.summe)]).filter(([, x]) => x.length);
+  const zeile = f => `<tr><td>${esc(f.name)}${f.fest ? ' <span class="badge st-ok" title="Fest zugeordnet – gilt auch für neue Belege">fest</span>' : ''}
+      ${f.andere.length ? `<div class="small muted">teils anders: ${f.andere.map(([k, n]) => n + '× ' + esc(k || 'ohne')).join(', ')}</div>` : ''}</td>
+      <td class="num small">${[f.nR ? f.nR + ' Rechn.' : '', f.nB ? f.nB + ' Bank' : ''].filter(Boolean).join(' · ') || '<span class="muted">noch keine</span>'}</td><td class="num">${fmtE(f.summe)}</td>
+      <td><select class="inp" data-chg="firmaKa" data-k="${esc(f.key)}" data-n="${esc(f.name)}" aria-label="Kostenart für ${esc(f.name)}"><option value="">– keine –</option>${opt(f.haupt)}</select></td></tr>`;
+  return `
+  <section class="card"><h3>Neue Zuordnung</h3>
+    <p class="small muted">Firma eintippen und Kostenart wählen. Alle vorhandenen Rechnungen und Abbuchungen ohne Beleg dieser Firma werden umgestellt, neue Belege bekommen die Kostenart automatisch.</p>
+    <div class="btnrow"><input class="inp" id="fkName" list="fkListe" placeholder="Firma, z. B. Stahlgruber" style="min-width:240px"><datalist id="fkListe">${alle.map(f => `<option value="${esc(f.name)}">`).join('')}</datalist>
+      <select class="inp" id="fkKa"><option value="">Kostenart wählen …</option>${opt('')}</select><button class="btn primary" data-act="firmaKaNeu">Zuordnen</button></div>
+  </section>
+  <div class="toolbar">${searchIn('fk', 'Firma oder Kostenart suchen …')}<span class="sp"></span><span class="small muted">${alle.length} Firmen</span></div>
+  ${gruppen.map(([k, x]) => `<details class="card" data-auf="fk:${esc(k)}" ${q || (UI.auf || {})['fk:' + k] ? 'open' : ''}><summary><b>${esc(k || 'Ohne Kostenart')}</b> · ${x.length} ${x.length === 1 ? 'Firma' : 'Firmen'} · ${fmtE(r2(sum(x, f => f.summe)))}</summary>
+    <div class="tw"><table class="tb"><thead><tr><th>Firma</th><th class="num">Belege</th><th class="num">Summe brutto</th><th>Kostenart</th></tr></thead><tbody>${x.map(zeile).join('')}</tbody></table></div></details>`).join('') || '<div class="empty small">Keine Firma gefunden.</div>'}`;
+}
 function rgAusForm(d, g) {
   const fd = Object.fromEntries(new FormData($('form', d))), sp = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
   return { id: g.id || uid(), text: g.text || fd.kurz, kurz: fd.kurz, quelle: fd.quelle, richtung: fd.richtung, suche: sp(fd.suche), oder: sp(fd.oder), aktion: fd.aktion, kostenart: fd.kostenart || null };

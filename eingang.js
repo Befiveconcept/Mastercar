@@ -90,7 +90,7 @@ function dlpAnwenden(row, x) {
   if (voll) Object.assign(row, { durchlaufend: b, netto: 0, mwst: 0, nach_dlp: 0, mwst_pflicht: false, notiz: [row.notiz, 'Durchlaufender Posten (ohne MwSt)'].filter(Boolean).join(' · ') });
   else if (ki > 0.005 && ki < Math.abs(b)) { const d = Math.sign(b) * ki; Object.assign(row, { durchlaufend: r2(d), nach_dlp: r2(b - d), mwst_pflicht: Math.abs(+row.mwst || 0) > 0.005 }); }
   // Kategorie wie bisher beim selben Rechnungssteller (TÜV steht in der Excel z. B. unter Materialaufwand)
-  if (voll && vor.length) { const n = {}; vor.forEach(r => { if (r.kostenart) n[r.kostenart] = (n[r.kostenart] || 0) + 1; }); const k = Object.keys(n).sort((a, c) => n[c] - n[a])[0]; if (k) { row.kostenart = k; row.unterkonto = null; } }
+  if (voll && vor.length && !firmaKostenart(row.partner)) { const n = {}; vor.forEach(r => { if (r.kostenart) n[r.kostenart] = (n[r.kostenart] || 0) + 1; }); const k = Object.keys(n).sort((a, c) => n[c] - n[a])[0]; if (k) { row.kostenart = k; row.unterkonto = null; } }
 }
 // Schon angelegte Belege von TÜV/DEKRA & Co. ohne durchlaufenden Posten nachträglich richtigstellen (Excel-Zeilen bleiben wie sie sind)
 async function dlpNachziehen() {
@@ -303,9 +303,10 @@ async function eingangDrop(fileList) {
           && r.datum && Math.abs(daysBetween(r.datum, datum)) <= 5 && !(nummer && r.nummer && normNr(r.nummer) !== normNr(nummer) && !normNr(r.nummer).includes(normNr(nummer)) && !normNr(nummer).includes(normNr(r.nummer))));
         if (c.length === 1) { if (nummer && !c[0].nummer) await DB.update('rechnungen', c[0].id, { nummer }); return anhaengen(S.rechnungen.find(r => r.id === c[0].id) || c[0], b); }
       }
+      const kaF = firmaKostenart(partner || b.name);   /* feste Kostenart der Firma geht vor */
       const row = { richtung: 'eingang', nummer: nummer || null, datum, faellig: parseDate(x.faellig), partner: partner || b.name, netto, mwst, brutto: r2(brutto || 0),
-        kostenart: KOSTENARTEN.includes(x.kostenart) ? x.kostenart : kostenartVorschlag('', partner),
-        unterkonto: UNTERKONTEN(x.kostenart).includes(x.unterkonto) ? x.unterkonto : null, art: x.gutschrift ? 'Gutschrift' : (['Rechnung', 'Korrektur', 'Vertrag', 'Beleg'].includes(x.art) ? x.art : 'Rechnung'), iban: String(x.iban || '').replace(/\s/g, '').toUpperCase() || null,
+        kostenart: kaF || (KOSTENARTEN.includes(x.kostenart) ? x.kostenart : kostenartVorschlag('', partner)),
+        unterkonto: (!kaF || kaF === x.kostenart) && UNTERKONTEN(x.kostenart).includes(x.unterkonto) ? x.unterkonto : null, art: x.gutschrift ? 'Gutschrift' : (['Rechnung', 'Korrektur', 'Vertrag', 'Beleg'].includes(x.art) ? x.art : 'Rechnung'), iban: String(x.iban || '').replace(/\s/g, '').toUpperCase() || null,
         beschreibung: String(x.beschreibung || '').trim() || (b.mail ? b.mail.subject : null), zahlart: zahlartVorschlag(partner, x),
         datei: null, dateiname: b.name, quelle: DB.aiOn && x.brutto != null ? 'ki' : 'manuell', geprueft: false, schluessel,
         status_excel: x._mahnStatus ? x._mahnStatus : x.bezahlung === 'bereits_bezahlt' ? 'Bezahlt' : (x.bezahlung === 'lastschrift' || zahlartVorschlag(partner, x) === 'sepa') ? 'Abbuchung offen' : 'Offen',
