@@ -191,6 +191,11 @@ async function importMappe(file, tbl) {
   // Nur ab 2026: ältere Zeilen (z. B. Rechnungen aus 2025) gar nicht erst anbieten
   const vor = { n: 0 }, ab2026 = l => l ? l.filter(r => { const ok = !r.datum || r.datum >= START_DATUM; if (!ok) vor.n++; return ok; }) : l;
   P.eingang = ab2026(P.eingang); P.ausgang = ab2026(P.ausgang); if (P.kasse) P.kasse.rows = ab2026(P.kasse.rows); if (P.hebe) P.hebe.rows = ab2026(P.hebe.rows);
+  /* Werkstatt Journal: nur die Zeilen NACH der letzten Rechnungsnummer, die schon in der App ist (z. B. ab R26-1785) – ältere Zeilen werden gar nicht angeschaut */
+  const reNr = s => { const m = String(s || '').trim().toUpperCase().match(/^R\s*(\d{2})\s*[-\/]\s*(\d{1,6})$/); return m ? +m[1] * 1e6 + +m[2] : null; };
+  const letzteR = S.rechnungen.filter(r => r.richtung === 'ausgang' && reNr(r.nummer)).sort((a, b) => reNr(b.nummer) - reNr(a.nummer))[0];
+  let ausgangAlt = 0;
+  if (P.ausgang && letzteR) { const v = P.ausgang.length; P.ausgang = P.ausgang.filter(r => (reNr(r.nummer) || 0) > reNr(letzteR.nummer)); ausgangAlt = v - P.ausgang.length; }
   busy(false);
   const n = { eingang: P.eingang?.length, ausgang: P.ausgang?.length, kasse: P.kasse?.rows.length, todos: P.todos?.length, hebe: P.hebe?.rows.length };
   const exist = { kasse: new Set(S.kasse.map(r => r.schluessel)), todos: new Set(S.todos.map(r => r.schluessel)), hebe: new Set(S.hebebuehne.map(r => r.schluessel)) };
@@ -207,7 +212,7 @@ async function importMappe(file, tbl) {
     <p class="small muted">${esc(file.name)} · Neue Einträge werden angelegt. Rechnungen, die es schon gibt, bekommen die Änderungen aus der Datei (z. B. Status „Bezahlt“ oder „Mahnung“); alles andere bleibt, wie es ist. Die Datei kann also jede Woche wieder reingezogen werden.${vor.n ? ` <b>${vor.n} Zeilen vor 2026 werden übersprungen.</b>` : ''}</p>
     <div class="chklist">
       ${line('eingang', 'Ein- und Ausgaben → Rechnungseingang', ' (inkl. Gutschriften, Verträge, Stornos)')}
-      ${line('ausgang', 'Werkstatt Journal → Rechnungsausgang')}
+      ${line('ausgang', 'Werkstatt Journal → Rechnungsausgang', letzteR ? ` <span class="muted">(nur nach ${esc(letzteR.nummer)} – ${fmtN(ausgangAlt)} ältere Zeilen nicht angeschaut)</span>` : '')}
       ${line('kasse', 'Kassenbuch', P.kasse && P.kasse.anfang != null ? ' · Anfangsbestand ' + fmtE(P.kasse.anfang) : '')}
       ${line('todos', 'Actions → To-Dos')}
       ${line('hebe', 'Hebebühne', P.hebe && P.hebe.fixed ? ` · <span class="warn-t">${P.hebe.fixed} Datum(e) mit falschem Jahr über die Kalenderwoche korrigiert</span>` : '')}
