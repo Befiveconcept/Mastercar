@@ -563,6 +563,11 @@ async function autoAbgleich() {
   const HR_RX = /\bikk\b|\baok\b|\bbkk\b|barmer|techniker\s*kranken|\bdak\b|\bkkh\b|\bhkk\b|knappschaft|minijob|kranken\s*kasse|krankenkasse|krankenversicherung|sozialversicherung|svlfg|beitragsnachweis|sv[-\s]?beitr|lohnsteuer|lohn\s*\/|gehalt|lohnzahlung|\blohn\b/i;
   const hrJobs = S.bank.filter(b => b.betrag < 0 && !b.art && !b.kostenart && !(IDX.zByB.get(b.id) || []).length && !(extraP.get(b.id) > 0.005) && HR_RX.test((b.gegenpartei || '') + ' ' + (b.zweck || '')));
   for (let i = 0; i < hrJobs.length; i += 10) await Promise.all(hrJobs.slice(i, i + 10).map(b => DB.update('bank', b.id, { kostenart: 'Personalkosten' })));
+  /* Kostenart auch bei Buchungen ohne Rechnung sichtbar machen: AAG-Erstattung der Krankenkasse → Personalkosten, Bankgebühr → sonstige Kosten */
+  buildIdx();
+  const kaJobs = S.bank.filter(b => !b.kostenart && !b.art && !(IDX.zByB.get(b.id) || []).length)
+    .map(b => [b, personalErstattung(b) ? 'Personalkosten' : (IDX.bArt && IDX.bArt.get(b.id)) === 'gebuehr' ? 'sonstige Kosten' : null]).filter(x => x[1]);
+  for (let i = 0; i < kaJobs.length; i += 10) await Promise.all(kaJobs.slice(i, i + 10).map(([b, k]) => DB.update('bank', b.id, { kostenart: k })));
 
   for (const [z, betrag] of zUpd) await DB.update('zuordnungen', z.id, { betrag, notiz: [z.notiz, 'Sammelzahlung aufgeteilt'].filter(Boolean).join(' · ') });
   for (const [r, s] of skontoUpd) await DB.update('rechnungen', r.id, { skonto: r2((+r.skonto || 0) + s), notiz: [r.notiz, 'Skonto ' + fmtE(s) + ' beim Bezahlen abgezogen'].filter(Boolean).join(' · ') });
