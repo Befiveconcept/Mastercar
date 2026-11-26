@@ -93,17 +93,22 @@ function viewAvis() {
   let list = [...S.avise].sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
   const bk = a => a.bank_id && S.bank.find(b => b.id === a.bank_id);
   const rs = a => (a.rechnung_ids || []).map(id => S.rechnungen.find(r => r.id === id)).filter(Boolean);
+  /* Nummern laut Avis, zu denen es (noch) keine Rechnung in der App gibt */
+  const fehlt = a => String(a.rechnung_nrn || '').split(/[,;]\s*|\s+/).filter(Boolean).filter(n => !avisRechnungen([n], a.partner).length);
+  const vollst = a => /vorjahr/i.test(a.notiz || '') ? 'Vorjahr' : fehlt(a).length ? 'Rechnungen fehlen' : 'vollständig';
   const cols = [colDat('datum', 'Datum', a => a.datum), colTxt('partner', 'Absender', a => a.partner), colTxt('nr', 'Avis-Nr.', a => a.nummer), colNum('betrag', 'Betrag', a => a.betrag),
     colTxt('re', 'Rechnungen', a => [a.rechnung_nrn, ...rs(a).map(r => r.nummer + ' ' + r.partner)].join(' ')),
+    { k: 'voll', l: 'Rechnungen in der App', v: vollst, sel: true },
     { k: 'bank', l: 'Bank', v: a => bk(a) ? 'abgebucht' : 'Abbuchung offen', sel: true }, { k: 'pdf', l: 'PDF', v: a => a.datei ? 'mit PDF' : 'ohne PDF', sel: true }];
   const base = list; list = colApply('avis', list, cols);
   return `
   <div class="toolbar"><h1>Zahlungsavis</h1><span class="sp"></span><button class="btn primary" data-act="pickBeleg">⬆ Avis hochladen</button></div>
   <p class="muted small">Zahlungsavise liegen nur hier – nicht im Rechnungseingang. Die zugehörigen Rechnungen stehen auf „Abbuchung offen“, bis die Abbuchung in der Bank gefunden ist, und tragen in der Tabelle den Vermerk 📨.</p>
-  <div class="sumline">${list.length} Avis · ${fmtE(sum(list, a => a.betrag))} · noch nicht abgebucht: ${list.filter(a => !bk(a)).length}${colReset('avis')}</div>
+  <div class="sumline">${list.length} Avis · ${fmtE(sum(list, a => a.betrag))} · noch nicht abgebucht: ${list.filter(a => !bk(a)).length} · <b>Rechnungen fehlen: ${list.filter(a => vollst(a) === 'Rechnungen fehlen').length}</b>${colReset('avis')}</div>
   <div class="tw"><table class="tb click">${colHead('avis', cols, base)}<tbody>
   ${list.map(a => { const b = bk(a), r = rs(a); return `<tr data-act="avisD" data-id="${a.id}"><td>${fmtD(a.datum)}</td><td>${esc(a.partner || '')}</td><td class="mono">${esc(a.nummer || '–')}</td><td class="num">${a.betrag != null ? fmtE(a.betrag) : ''}</td>
     <td class="small">${r.length ? r.map(x => esc(x.nummer || '')).join(', ') : ''}${a.rechnung_nrn && r.length < a.rechnung_nrn.split(',').length ? ` <span class="muted">(laut Avis: ${esc(a.rechnung_nrn)})</span>` : ''}</td>
+    <td>${(v => v === 'Rechnungen fehlen' ? badge({ cls: 'st-bad', label: '⚠ fehlen: ' + fehlt(a).join(', ') }) : v === 'Vorjahr' ? badge({ cls: 'st-info', label: 'Vorjahr' }) : badge({ cls: 'st-ok', label: '✓' }))(vollst(a))}</td>
     <td>${b ? badge({ cls: 'st-ok', label: '✓ abgebucht ' + fmtD(b.datum) }) : badge({ cls: 'st-warn', label: 'Abbuchung offen' })}</td><td>${a.datei ? '📄' : ''}</td></tr>`; }).join('') || `<tr><td colspan="${cols.length}" class="empty">Noch keine Zahlungsavise. Einfach die PDF oder Mail reinziehen und „Verarbeiten“ – die KI erkennt Avise automatisch.</td></tr>`}
   </tbody></table></div>`;
 }
