@@ -16,7 +16,7 @@ async function kiBelegLesen(b) {
 Lies den Beleg genau. Beträge als Zahl (Punkt als Dezimaltrenner), Datum als JJJJ-MM-TT. Wenn ein Zahlungsziel in Tagen steht, das Fälligkeitsdatum ausrechnen.
 Kostenart (GuV-Kategorie) genau eine aus: ${KOSTENARTEN.join(', ')}. Unterposition nur wenn passend, aus: ${GUV.filter(g => g.subs.length).map(g => g.k + ' → ' + g.subs.map(s => s[0]).join(' / ')).join('; ')}.
 Antworte nur mit JSON:
-{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"avis_daten":[],"mahnung":0,"mahnung_rechnungen":[],"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","zahlweg":"lastschrift|ueberweisung|bar|karte|paypal|","gutschrift":false,"durchlaufend":0}
+{"ist_rechnung":true,"kontoauszug":false,"eigene_rechnung":false,"lieferant":"","nummer":"","datum":"","faellig":"","netto":0,"mwst":0,"brutto":0,"iban":"","kostenart":"","unterkonto":"","art":"Rechnung|Gutschrift|Korrektur|Vertrag|Beleg|Zahlungsavis","avis_betrag":0,"avis_rechnungen":[],"avis_daten":[],"mahnung":0,"mahnung_rechnungen":[],"mahngebuehr":0,"bezug_rechnung":"","kennzeichen":"","kundennr":"","zahlart":"bar|ec|ueberweisung|","lohn":0,"teile":0,"beschreibung":"kurz: was wurde geliefert/geleistet","bezahlung":"offen|lastschrift|bereits_bezahlt","zahlweg":"lastschrift|ueberweisung|bar|karte|paypal|","gutschrift":false,"durchlaufend":0}
 durchlaufend = Summe der durchlaufenden Posten ohne MwSt (amtliche Gebühren: HU/AU-Prüfgebühren, Plaketten, Zulassungs- und Behördengebühren, Gebühren „gem. GebOSt“ oder „nicht umsatzsteuerbar/ohne MwSt“ im Namen und für Rechnung Dritter). Bei TÜV, DEKRA, GTÜ, KÜS ist das meist der ganze Betrag. Diese Beträge NICHT in netto/mwst rechnen; 0, wenn es keine gibt.
 ist_rechnung=false, wenn es keine Rechnung/Gutschrift ist (z. B. AGB, Lieferschein, Werbung).
 zahlweg: wie laut Rechnung bezahlt wird – "lastschrift" (SEPA-Lastschrift, „wird abgebucht“, „Einzug“, Mandatsreferenz), "ueberweisung" (Bankverbindung zum Überweisen, „zahlbar bis“, „bitte überweisen“), "bar", "karte" (EC/Kreditkarte), "paypal"; leer, wenn nichts dazu draufsteht.
@@ -217,6 +217,19 @@ async function eingangDrop(fileList) {
   // Mahnung / Zahlungserinnerung: angemahnte Rechnung(en) suchen, Status hochsetzen (Mahnung → 2. → 3. Mahnung),
   // fehlende Rechnungs-PDF ergänzen; das Mahnschreiben selbst wird als eigener Eintrag (Art „Mahnung“) mit PDF abgelegt.
   // Gibt true zurück, wenn nichts weiter zu tun ist; false = Rechnung noch nicht da → normal anlegen (mit Mahnstatus).
+  /* Das Mahnschreiben selbst als Dokument (Art „Mahnung“, Betrag 0) ablegen – benannt z. B. „VE Sport_Wiemer_2. Mahnung_522006592_20.11.2026.pdf“,
+     in der App mit der angemahnten Rechnung verknüpft und (wie alle Eingangsbelege) im Ordner Rechnungseingang */
+  const mahnDok = async (x, b, stufe, ziele, datum) => {
+    try {
+      const schluessel = 'M:' + await fileHash(b.file); if (S.rechnungen.some(r => r.schluessel === schluessel)) return;
+      const nrn = ziele.length ? ziele.map(r => r.nummer) : [x.nummer].filter(Boolean), gebuehr = parseNum(x.mahngebuehr);
+      const row = { richtung: 'eingang', art: 'Mahnung', partner: (ziele[0] && ziele[0].partner) || String(x.lieferant || '').trim() || b.name, nummer: nrn.join(', ').slice(0, 80) || null, datum,
+        brutto: 0, netto: 0, mwst: 0, bezug_id: ziele[0] ? ziele[0].id : null, status_excel: MLABEL[stufe - 1], quelle: 'ki', geprueft: true, schluessel,
+        notiz: `${MLABEL[stufe - 1]} zu ${nrn.join(', ') || '?'}${gebuehr ? ' · Mahngebühr ' + fmtE(gebuehr) : ''}` };
+      Object.assign(row, await belegSpeichern(row, b.file));
+      await DB.insert('rechnungen', [row]);
+    } catch (e) { console.warn('Mahnung nicht abgelegt', e); }
+  };
   const mahnungVerarbeiten = async (x, b) => {
     const stufe = Math.min(3, Math.max(1, parseInt(x.mahnung) || 1));
     const nrn = [...new Set([...(Array.isArray(x.mahnung_rechnungen) ? x.mahnung_rechnungen : []), x.nummer].map(n => String(n || '').trim()).filter(Boolean))];
@@ -240,11 +253,13 @@ async function eingangDrop(fileList) {
       // Rechnung hängt an der Mahnung und hat noch keine PDF → ergänzen
       const r = x.nummer && ziele.find(r => normNr(r.nummer) === normNr(x.nummer));
       if (r && !r.datei && x.ist_rechnung !== false && x.brutto) { await belegAnhaengen(r, b.file); ergaenzt.push(r); }
+      else await mahnDok(x, b, stufe, ziele, datum);   // sonst das Mahnschreiben selbst ablegen
       return true;
     }
     // Angemahnte Rechnung ist noch nicht in der App: mit Nummer und Betrag direkt als Rechnung mit Mahnstatus anlegen
     if (x.nummer && x.brutto) { x._mahnStatus = MLABEL[stufe - 1]; x._ausMahnung = x.ist_rechnung === false; x.ist_rechnung = true; if (!['Rechnung', 'Korrektur'].includes(x.art)) x.art = 'Rechnung'; return false; }
     if (ersteMal) mahnungen.push({ label: MLABEL[stufe - 1], partner: String(x.lieferant || '').trim() || b.name, nrn, ziele: [], fehlt: true });
+    await mahnDok(x, b, stufe, [], datum);   // Mahnschreiben trotzdem ablegen (Rechnung kommt später)
     return true;
   };
   const eins = async b => {

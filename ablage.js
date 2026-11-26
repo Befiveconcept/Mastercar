@@ -12,7 +12,8 @@ function dateiEndung(name, type) {
   return /pdf/.test(type || '') ? 'pdf' : /png/.test(type || '') ? 'png' : /jpe?g/.test(type || '') ? 'jpg' : 'pdf';
 }
 function belegName(r, ext = 'pdf') {
-  const teile = ['VE Sport', nameTeil(r.partner) || 'Unbekannt', nameTeil(r.art, 20) || (r.brutto < 0 ? 'Gutschrift' : 'Rechnung'), nameTeil(r.nummer, 40) || 'ohne Nr', r.datum ? r.datum.slice(0, 10).split('-').reverse().join('.') : 'ohne Datum'];   // Datum wie 19.11.2026
+  /* Mahnschreiben: Art mit Stufe („2. Mahnung“), Nummer = angemahnte Rechnung(en) */
+  const teile = ['VE Sport', nameTeil(r.partner) || 'Unbekannt', (r.art === 'Mahnung' && /mahnung/i.test(r.status_excel || '') ? nameTeil(r.status_excel, 20) : nameTeil(r.art, 20)) || (r.brutto < 0 ? 'Gutschrift' : 'Rechnung'), nameTeil(r.nummer, 40) || 'ohne Nr', r.datum ? r.datum.slice(0, 10).split('-').reverse().join('.') : 'ohne Datum'];   // Datum wie 19.11.2026
   return teile.join('_') + '.' + ext;
 }
 
