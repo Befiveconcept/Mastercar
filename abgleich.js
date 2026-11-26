@@ -694,6 +694,13 @@ function abgleichBericht(res) {
 
 /* ---------- Manuelles Zuordnen ---------- */
 async function zuordnen(r, pay, kind, betrag, notiz) {
+  /* Ist die Rechnung schon mit genau dieser Zahlung verknüpft, wird der Betrag dort ergänzt statt eine zweite Zeile anzulegen */
+  const alt = pay && kind !== 'bar' && S.zuordnungen.find(z => z.rechnung_id === r.id && z[kind + '_id'] === pay.id);
+  if (alt) {
+    const soll = Math.abs(sollOf(r)), neu = r2(+alt.betrag + +betrag);
+    await DB.update('zuordnungen', alt.id, { betrag: soll > 0.005 && Math.abs(neu) > soll + 0.01 ? r2(Math.sign(neu) * soll) : neu, notiz: [alt.notiz, notiz].filter(Boolean).join(' · ') || null });
+    buildIdx(); await statusNachziehen([r.id]); return;
+  }
   await DB.insert('zuordnungen', [{ rechnung_id: r.id, bank_id: kind === 'bank' ? pay.id : null, sumup_id: kind === 'sumup' ? pay.id : null, kasse_id: kind === 'kasse' ? pay.id : null, betrag: r2(betrag), art: kind === 'bar' ? 'bar' : 'manuell', datum: pay ? pay.datum : todayISO(), notiz: notiz || null }]);
   await statusNachziehen([r.id]);
 }

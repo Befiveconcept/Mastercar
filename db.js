@@ -72,9 +72,15 @@ const DB = (() => {
   }
   const clean = r => { const o = {}; for (const k in r) if (r[k] !== undefined && !k.startsWith('_')) o[k] = r[k] === '' ? null : r[k]; return o; };
 
+  const zKey = z => (z.bank_id || z.sumup_id || z.kasse_id) ? [z.rechnung_id, z.bank_id || '', z.sumup_id || '', z.kasse_id || ''].join('|') : null;
+  function ohneDoppelte(rows) {
+    const da = new Set(S.zuordnungen.map(zKey).filter(Boolean));
+    return rows.filter(z => { const k = zKey(z); if (!k) return true; if (da.has(k)) { console.warn('Doppelte Zuordnung übersprungen', z); return false; } da.add(k); return true; });
+  }
   // Einfügen; doppelte (gleicher Schlüssel) werden übersprungen. Gibt die neu angelegten Zeilen zurück.
   async function insert(t, rows) {
     rows = rows.map(clean).filter(r => abStart(t, r)); if (!rows.length) return [];   // vor 2026 wird nichts übernommen
+    if (t === 'zuordnungen') { rows = ohneDoppelte(rows); if (!rows.length) return []; }   // dieselbe Rechnung nie zweimal an dieselbe Zahlung
     const key = CONFLICT[t];
     if (!cloud) {
       const have = new Set(key ? S[t].map(r => r[key]).filter(Boolean) : []); const added = [];
