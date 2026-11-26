@@ -114,15 +114,19 @@ function regelForm(g, i) {
 /* ---------- Kostenarten je Firma (Einstellungen) ----------
    Je Kostenart die Firmen, deren Eingangsrechnungen und Abbuchungen ohne Beleg aktuell darunter laufen.
    Eine Änderung stellt alle Belege der Firma um und gilt fest auch für neue Belege (einstellungen.firma_kostenart). */
+/* Rückzahlung an einen Werkstatt-Kunden (doppelt bezahlt, Erstattung …) ist kein Lieferant und keine Kostenart */
+const RUECKZ_RX = /doppelt|erstatt|r(ü|ue)ck(zahl|überw|ueberw)|zur(ü|ue)ck|gutschrift|storno|\bR\d{2}-?\d{3,5}\b/i;
+function kundenNurKeys() { const k = new Set(), l = new Set(); S.rechnungen.forEach(r => { const x = firmaKey(r.partner); if (x) (r.richtung === 'ausgang' ? k : l).add(x); }); return new Set([...k].filter(x => !l.has(x))); }
+const istKundenRueckzahlung = (b, K) => K.has(firmaKey(b.gegenpartei)) && RUECKZ_RX.test(String(b.zweck || '').replace(/^.*SVWZ\+/, ''));
 function firmenKa() {
-  const F = new Map(), m = firmaKaMap();
+  const F = new Map(), m = firmaKaMap(), K = kundenNurKeys();
   const add = (name, ka, betrag, typ) => {
     const key = firmaKey(name); if (!key) return;
     let f = F.get(key); if (!f) F.set(key, f = { key, namen: {}, ka: {}, n: 0, nR: 0, nB: 0, summe: 0 });
     f.namen[name] = (f.namen[name] || 0) + 1; f.ka[ka || ''] = (f.ka[ka || ''] || 0) + 1; f.n++; if (typ === 'r') f.nR++; else f.nB++; f.summe += Math.abs(+betrag || 0);
   };
   S.rechnungen.forEach(r => { if (r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art)) add(r.partner, r.kostenart, r.brutto, 'r'); });
-  S.bank.forEach(b => { if (b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length) add(b.gegenpartei, b.kostenart, b.betrag, 'b'); });
+  S.bank.forEach(b => { if (b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length && !istKundenRueckzahlung(b, K)) add(b.gegenpartei, b.kostenart, b.betrag, 'b'); });
   Object.entries(m).forEach(([key, v]) => { if (!F.has(key)) F.set(key, { key, namen: { [(v && v.name) || key]: 1 }, ka: {}, n: 0, nR: 0, nB: 0, summe: 0 }); });
   return [...F.values()].map(f => {
     const name = Object.entries(f.namen).sort((a, b) => b[1] - a[1])[0][0], fest = m[f.key] && m[f.key].k;
@@ -134,8 +138,9 @@ function firmenKa() {
 }
 // Belege einer Firma (gleicher Schlüssel wie in der Übersicht)
 function firmaBelege(key) {
+  const K = kundenNurKeys();
   return { r: S.rechnungen.filter(r => r.richtung === 'eingang' && !DOK_ARTEN.includes(r.art) && firmaKey(r.partner) === key),
-    b: S.bank.filter(b => b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length && firmaKey(b.gegenpartei) === key) };
+    b: S.bank.filter(b => b.betrag < 0 && !b.art && !(IDX.zByB.get(b.id) || []).length && firmaKey(b.gegenpartei) === key && !istKundenRueckzahlung(b, K)) };
 }
 async function firmaKaSetzen(key, name, ka) {
   buildIdx(); const { r, b } = firmaBelege(key), m = { ...firmaKaMap() };
