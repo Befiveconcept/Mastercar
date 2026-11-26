@@ -14,7 +14,7 @@ function buildIdx() {
    Gilt nur für Buchungen ohne Zuordnung und ohne von Hand gesetzte Art. */
 const B_AUTO = {
   vorjahr: ['Gehört zu 2025', 'st-info'], rueck: ['Rücklastschrift', 'st-info'], erstattung: ['Erstattung (ohne Rechnung)', 'st-info'],
-  steuer: ['Steuer-Erstattung', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], gebuehr: ['Bankgebühr', 'st-info'], rueckzahlung: ['Rückzahlung an Kunden', 'st-info'],
+  steuer: ['Steuer-Erstattung', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], gebuehr: ['Bankgebühr', 'st-info'], rueckzahlung: ['Rückzahlung an Kunden', 'st-info'], durchlaufend: ['Durchlaufender Posten (TÜV …)', 'st-info'],
 };
 const RUECK_RX = /retoure|r(ü|ue|u)cklastschrift|return\s*\/\s*refund/i;
 const bZweck = b => String(b.zweck || '').replace(/^.*SVWZ\+/, '') + ' ' + (b.gegenpartei || '');
@@ -37,7 +37,8 @@ function bankOhneRechnung() {
     else if (/darlehen|tilgung/i.test(t)) k = 'darlehen';
     else if (b.betrag > 0 && /steuerverwaltung|finanzamt|bundeskasse/i.test(t)) k = 'steuer';
     else if (b.betrag > 0 && /erstattung|erstattet|r(ü|ue|u)ckzahlung|(ü|ue|u)berzahlung|doppelzahl|zu\s?viel|refund|zur(ü|ue|u)ck/i.test(t)) k = 'erstattung';
-    else if (b.betrag < 0 && /umsatzsteuer auf eur .*abrechnung per|jahrespreis girocard|kontof(ü|ue|u)hrung|rechnungsabschluss|entgelt(e)? f(ü|ue|u)r/i.test(t)) k = 'gebuehr';
+    else if (b.betrag < 0 && /umsatzsteuer auf eur .*abrechnung per|jahrespreis girocard|kontof(ü|ue|u)hrung|rechnungsabschluss|entgelt(e)? f(ü|ue|u)r|lastschrift\s+r(ü|ue|u)ckgabe|r(ü|ue|u)ckgabe\s*\/\s*widerspruch/i.test(t)) k = 'gebuehr';   /* auch Gebühr für zurückgegebene Lastschriften (1,80 €) */
+    else if (b.betrag < 0 && typeof DLP_STELLER !== 'undefined' && DLP_STELLER.test(b.gegenpartei || '')) k = 'durchlaufend';   /* TÜV/DEKRA ohne Rechnung in der App: wird 1:1 an Kunden berechnet */
     else if (b.betrag < 0 && /doppelzahl|(ü|ue|u)berzahl|zu\s?viel|r(ü|ue|u)ckzahl|r(ü|ue|u)ck(ü|ue|u)berw/i.test(t)) k = 'rueckzahlung';
     if (k) m.set(b.id, k);
   }
@@ -186,7 +187,7 @@ function zweckKurz(s) {
 }
 // Bankbewegungen, die weder Kosten noch Erlöse sind (Darlehen aufnehmen/tilgen, Vorjahr, Rücklastschrift-Paare, Privat, Umbuchung …)
 const bankNeutral = b => ['privat', 'intern', 'ignoriert', 'vorjahr', 'darlehen'].includes(b.art)
-  || (!(IDX.zByB.get(b.id) || []).length && ['darlehen', 'vorjahr', 'rueck'].includes(IDX.bArt && IDX.bArt.get(b.id)));
+  || (!(IDX.zByB.get(b.id) || []).length && ['darlehen', 'vorjahr', 'rueck', 'durchlaufend'].includes(IDX.bArt && IDX.bArt.get(b.id)));
 /* Erstattung der Krankenkasse nach AAG (U1 Lohnfortzahlung, U2 Mutterschaft) mindert die Personalkosten */
 const KK_RX = /\bikk\b|\baok\b|\bbkk\b|barmer|techniker\s*kranken|\btk\b|\bdak\b|\bkkh\b|\bhkk\b|knappschaft|minijob|krankenkasse|kranken\s*kasse|krankenversicherung|sozialversicherung|svlfg|ersatzkasse/i;
 const AAG_RX = /\baag\b|\bu\s?[12]\b|umlage|lohnfortzahl|entgeltfortzahl|mutterschaft|mutterschutz|erstatt/i;
@@ -204,7 +205,7 @@ function bStatus(b) {
   let key;
   const auto = !zs.length && !b.art && IDX.bArt && IDX.bArt.get(b.id);
   if (b.art && B_ST[b.art] && !zs.length) key = b.art;
-  else if (auto && !(b.betrag < 0 && b.kostenart && auto !== 'rueck')) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
+  else if (auto && !(b.betrag < 0 && b.kostenart && !['rueck', 'gebuehr', 'durchlaufend'].includes(auto))) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
   else if (!zs.length) key = b.betrag < 0 && b.kostenart ? 'kosten' : 'offen';
   else key = rest <= 0.01 ? 'zugeordnet' : 'teilweise';
   /* Rest gehört laut Verwendungszweck zu einer Rechnung aus einem Vorjahr (R25-…), die nicht in der App ist → erledigt */
@@ -613,11 +614,17 @@ async function verrechnungAusZweck() {
     const posten = l.map(r => ({ r, o: offenVon(r, b.id) })).filter(x => Math.abs(x.o) > 0.005);
     if (!posten.length || (posten.length === 1 && zs.length)) continue;   // ein einzelner Beleg nur bei noch freier Buchung
     const fluss = r2(sum(posten, x => (x.r.richtung === 'eingang' ? -1 : 1) * x.o));
-    if (Math.abs(fluss - b.betrag) > 0.01) continue;
+    /* Abbuchung etwas kleiner als die Summe der Belege = Skonto (bis 3 % der Rechnungen, z. B. WM SE, Wiemer) → bei der größten Rechnung als Skonto eintragen */
+    const posR = posten.filter(x => x.o > 0 && x.r.richtung === 'eingang'), dSk = r2(b.betrag - fluss);
+    let sk = 0;
+    /* auch kleine Rundungsdifferenz bis 2 €, wenn Skonto schon eingetragen ist (dann wird der Skonto passend korrigiert) */
+    if (Math.abs(dSk) > 0.01) { if (!(b.betrag < 0 && !zs.length && posR.length && (Math.abs(dSk) <= 2 || (dSk > 0 && dSk <= 0.031 * sum(posR, x => x.o))))) continue; sk = dSk; }
     // schon genau so zugeordnet?
     if (zs.length === posten.length && posten.every(x => zs.some(z => z.rechnung_id === x.r.id && Math.abs(z.betrag - x.o) <= 0.01))) continue;
     if (zs.length) await DB.remove('zuordnungen', zs.map(z => z.id));
-    await DB.insert('zuordnungen', posten.map(x => ({ rechnung_id: x.r.id, bank_id: b.id, betrag: x.o, art: 'auto', datum: b.datum, notiz: `Verrechnung laut Verwendungszweck (${posten.length} Belege)` })));
+    if (sk) { const L = posR.slice().sort((x, y) => y.o - x.o)[0], skNeu = r2((+L.r.skonto || 0) + sk); L.o = r2(L.o - sk);
+      await DB.update('rechnungen', L.r.id, { skonto: Math.max(0, skNeu), notiz: [L.r.notiz, (sk > 0 ? 'Skonto ' + fmtE(sk) + ' bei der Sammelzahlung vom ' + fmtD(b.datum) + ' abgezogen' : 'Skonto um ' + fmtE(-sk) + ' korrigiert (Sammelzahlung vom ' + fmtD(b.datum) + ')')].filter(Boolean).join(' · ') }); }
+    await DB.insert('zuordnungen', posten.map(x => ({ rechnung_id: x.r.id, bank_id: b.id, betrag: x.o, art: 'auto', datum: b.datum, notiz: `Verrechnung laut Verwendungszweck (${posten.length} Belege)` + (sk ? ', Skonto abgezogen' : '') })));
     buildIdx(); n++;
   }
   return n;

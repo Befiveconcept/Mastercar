@@ -51,6 +51,10 @@ async function avisSpeichern(x, b) {
   const bk = avisBank(row); if (bk) row.bank_id = bk.id;
   const [a] = await DB.insert('avise', [row]); if (!a) return null;
   await avisStatus(a);
+  /* Alle Rechnungen im Avis aus einem Vorjahr (nicht in der App) → die Abbuchung gehört zum Vorjahr, keine Kosten in diesem Jahr */
+  const dt = (Array.isArray(x.avis_daten) ? x.avis_daten : []).map(d => parseDate(d)).filter(Boolean);
+  if (bk && !bezug.length && dt.length && dt.every(d => d.slice(0, 4) < bk.datum.slice(0, 4)) && !bk.art && !(IDX.zByB.get(bk.id) || []).length)
+    await DB.update('bank', bk.id, { art: 'vorjahr', kostenart: null });
   return { a, bezug };
 }
 
