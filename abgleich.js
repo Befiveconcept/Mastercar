@@ -14,9 +14,10 @@ function buildIdx() {
    Gilt nur für Buchungen ohne Zuordnung und ohne von Hand gesetzte Art. */
 const B_AUTO = {
   vorjahr: ['Gehört zu 2025', 'st-info'], rueck: ['Rücklastschrift', 'st-info'], erstattung: ['Erstattung (ohne Rechnung)', 'st-info'],
-  steuer: ['Steuer-Erstattung', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], gebuehr: ['Bankgebühr', 'st-info'], rueckzahlung: ['Rückzahlung an Kunden', 'st-info'], durchlaufend: ['Durchlaufender Posten (TÜV …)', 'st-info'],
+  steuer: ['Steuer-Erstattung', 'st-info'], darlehen: ['Darlehen / Tilgung', 'st-info'], gebuehr: ['Bankgebühr', 'st-info'], rueckzahlung: ['Rückzahlung an Kunden', 'st-info'], durchlaufend: ['Durchlaufender Posten (TÜV …)', 'st-info'], laufend: ['Laufende Kosten (ohne Rechnung)', 'st-info'],
 };
-const RUECK_RX = /retoure|r(ü|ue|u)cklastschrift|return\s*\/\s*refund/i;
+const LAUFEND_RX = /\bgehalt|\blohn\b|lohnzahlung|krankenkasse|krankenversicherung|\bbeitr(a|ä|ae)g|sozialversicherung|\bikk\b|\baok\b|\bbkk\b|barmer|techniker\s*kranken|\bdak\b|knappschaft|minijob|wasser|abwasser|\bstrom\b|\bab\.?\s*strom|abschlag|energie|\bgas\b|leasing|\brate\s*\d|miete\b|pacht|versicherung|rundfunk/i;
+const RUECK_RX =/retoure|r(ü|ue|u)cklastschrift|return\s*\/\s*refund/i;
 const bZweck = b => String(b.zweck || '').replace(/^.*SVWZ\+/, '') + ' ' + (b.gegenpartei || '');
 function bankOhneRechnung() {
   const m = new Map(), frei = b => !b.art && !(IDX.zByB.get(b.id) || []).length;
@@ -40,6 +41,9 @@ function bankOhneRechnung() {
     else if (b.betrag < 0 && /umsatzsteuer auf eur .*abrechnung per|jahrespreis girocard|kontof(ü|ue|u)hrung|rechnungsabschluss|entgelt(e)? f(ü|ue|u)r|lastschrift\s+r(ü|ue|u)ckgabe|r(ü|ue|u)ckgabe\s*\/\s*widerspruch/i.test(t)) k = 'gebuehr';   /* auch Gebühr für zurückgegebene Lastschriften (1,80 €) */
     else if (b.betrag < 0 && typeof DLP_STELLER !== 'undefined' && DLP_STELLER.test(b.gegenpartei || '')) k = 'durchlaufend';   /* TÜV/DEKRA ohne Rechnung in der App: wird 1:1 an Kunden berechnet */
     else if (b.betrag < 0 && /doppelzahl|(ü|ue|u)berzahl|zu\s?viel|r(ü|ue|u)ckzahl|r(ü|ue|u)ck(ü|ue|u)berw/i.test(t)) k = 'rueckzahlung';
+    /* Laufende Kosten, für die es keine Rechnung gibt (Lohn, Krankenkasse, Wasser, Strom-Abschlag, Leasingrate, Steuern, Firma unter „Kostenarten je Firma“ fest zugeordnet)
+       → nicht als „Kosten ohne Beleg“ melden, zählen in der GuV aber weiter unter ihrer Kostenart */
+    else if (b.betrag < 0 && b.kostenart && (LAUFEND_RX.test(t) || (typeof firmaKostenart === 'function' && firmaKostenart(b.gegenpartei)) || /finanzamt|steuerverwaltung|bundeskasse/i.test(b.gegenpartei || ''))) k = 'laufend';
     if (k) m.set(b.id, k);
   }
   return m;
@@ -214,7 +218,7 @@ function bStatus(b) {
   let key;
   const auto = !zs.length && !b.art && IDX.bArt && IDX.bArt.get(b.id);
   if (b.art && B_ST[b.art] && !zs.length) key = b.art;
-  else if (auto && !(b.betrag < 0 && b.kostenart && !['rueck', 'gebuehr', 'durchlaufend'].includes(auto))) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
+  else if (auto && !(b.betrag < 0 && b.kostenart && !['rueck', 'gebuehr', 'durchlaufend', 'laufend'].includes(auto))) return { key: 'auto', auto, label: B_AUTO[auto][0], cls: B_AUTO[auto][1], rest: Math.max(0, rest), zuordnungen: zs };
   else if (!zs.length) key = b.betrag < 0 && b.kostenart ? 'kosten' : 'offen';
   else key = rest <= 0.01 ? 'zugeordnet' : 'teilweise';
   /* Kleiner Rest von Hand ausgebucht (Skonto, Rundung, Mahngebühr …) → gilt als fertig zugeordnet */

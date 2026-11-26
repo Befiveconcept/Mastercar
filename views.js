@@ -476,7 +476,7 @@ function viewRechnungen(dir) {
 
 /* Bank-Filter: mehrere gleichzeitig. Innerhalb einer Gruppe „oder“, zwischen den Gruppen „und“
    (z. B. Eingänge + Nicht zugeordnet = nicht zugeordnete Eingänge; Nicht zugeordnet + Kosten ohne Beleg = beides) */
-const FILT_B = [['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'], ['offen', 'Nicht zugeordnet'], ['zug', 'Zugeordnet'], ['sumup', 'SumUp-Auszahlungen'], ['kosten', 'Kosten ohne Beleg'], ['auto', 'Ohne Rechnung (Erstattung, Gebühr …)'], ['neutral', 'Privat / Umbuchung / Darlehen / 2025']];
+const FILT_B = [['alle', 'Alle'], ['ein', 'Eingänge'], ['aus', 'Ausgänge'], ['offen', 'Nicht zugeordnet'], ['zug', 'Zugeordnet'], ['sumup', 'SumUp-Auszahlungen'], ['kosten', 'Beleg fehlt'], ['auto', 'Ohne Rechnung (Lohn, Krankenkasse, Wasser, Gebühr …)'], ['neutral', 'Privat / Umbuchung / Darlehen / 2025']];
 const FILT_B_TEST = {
   ein: x => x.b.betrag > 0, aus: x => x.b.betrag < 0,
   offen: x => ['offen', 'teilweise'].includes(x.st.key), zug: x => ['zugeordnet', 'teilweise'].includes(x.st.key), sumup: x => x.b.art === 'sumup',
