@@ -256,24 +256,37 @@ function offeneListe() {
   const l = S.rechnungen.filter(r => r.richtung === 'ausgang' && r.art !== 'Mahnung').map(r => ({ r, st: rStatus(r) }))
     .filter(x => ['offen', 'ueberfaellig', 'teil'].includes(x.st.key) && x.st.offen > 0.01)
     .sort((a, b) => (a.r.datum || '').localeCompare(b.r.datum || ''));
-  const td = 'border:1px solid #bbb;padding:4px 8px;font-family:Arial,sans-serif;font-size:13px', th = td + ';background:#eee;text-align:left';
+  /* Überschriften mit fester dunkler Schrift auf hellem Grund – gut lesbar in der App (auch im Dunkelmodus) und in der Mail */
+  const td = 'border:1px solid #bbb;padding:4px 8px;font-family:Arial,sans-serif;font-size:13px', th = td + ';background:#d9e1ea;color:#111;font-weight:bold;text-align:left';
   const num = ';text-align:right;white-space:nowrap';
-  const kopf = ['Rechnungsnr.', 'Datum', 'Kunde', 'Kennzeichen', 'Fällig', 'Tage über', 'Brutto', 'Offen', 'Notiz'];
+  const kopf = ['Rechnungsnr.', 'Datum', 'Kunde', 'Kennzeichen', 'Fällig', 'Tage über', 'Brutto', 'Offen', 'Mahnstufe', 'Notiz'];
   const zahl = i => i >= 5 && i <= 7;
+  const stufe = r => /mahn/i.test(r.status_excel || '') ? String(r.status_excel).trim().replace(/^mahnung$/i, '1. Mahnung') : '';
   const zeilen = l.map(({ r, st }) => { const f = faelligAm(r), tage = f && f < heute ? daysBetween(f, heute) : '';
-    return [r.nummer || '', fmtD(r.datum), r.partner || '', r.kennzeichen || '', fmtD(f), String(tage), fmtE(r.brutto), fmtE(st.offen), String(r.notiz || '').replace(/\s+/g, ' ').trim()]; });
+    return [r.nummer || '', fmtD(r.datum), r.partner || '', r.kennzeichen || '', fmtD(f), String(tage), fmtE(r.brutto), fmtE(st.offen), stufe(r), String(r.notiz || '').replace(/\s+/g, ' ').trim()]; });
   const summe = sum(l, x => x.st.offen);
-  const tabelle = `<table style="border-collapse:collapse"><thead><tr>${kopf.map((k, i) => `<th style="${th}${zahl(i) ? num : ''}">${k}</th>`).join('')}</tr></thead><tbody>
-    ${zeilen.map(z => `<tr>${z.map((v, i) => `<td style="${td}${zahl(i) ? num : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}
-    <tr><td style="${td};font-weight:bold" colspan="7">Summe offen (${l.length} Rechnungen)</td><td style="${td}${num};font-weight:bold">${fmtE(summe)}</td><td style="${td}"></td></tr></tbody></table>`;
-  const text = [kopf, ...zeilen, ['Summe offen', '', '', '', '', '', '', fmtE(summe), '']].map(z => z.join('\t')).join('\n');
-  openSheet({ title: `Offene Kundenrechnungen (${l.length})`, wide: true, okLabel: '📋 Tabelle kopieren', cancelLabel: 'Schließen',
-    html: `<p class="small muted">Stand ${fmtD(heute)}. „Tabelle kopieren“ und in die Mail einfügen (Strg + V) – die Tabelle bleibt erhalten.</p><div class="tw">${tabelle}</div>`,
+  const tab = mitHaken => `<table style="border-collapse:collapse"><thead><tr>${mitHaken ? `<th style="${th};text-align:center">1. Mahnung</th>` : ''}${kopf.map((k, i) => `<th style="${th}${zahl(i) ? num : ''}">${k}</th>`).join('')}</tr></thead><tbody>
+    ${zeilen.map((z, n) => { const r = l[n].r, s = stufe(r), hoeher = s && s !== '1. Mahnung';
+      return `<tr>${mitHaken ? `<td style="${td};text-align:center">${hoeher ? `<span class="small">${esc(s)}</span>` : `<input type="checkbox" data-mahn1="${r.id}" ${s ? 'checked' : ''} title="Kunde bekommt die 1. Mahnung">`}</td>` : ''}${z.map((v, i) => `<td style="${td}${zahl(i) ? num : ''}${i === 8 && v ? ';color:#e5484d;font-weight:bold' : ''}">${esc(v)}</td>`).join('')}</tr>`; }).join('')}
+    <tr>${mitHaken ? `<td style="${td}"></td>` : ''}<td style="${td};font-weight:bold" colspan="7">Summe offen (${l.length} Rechnungen)</td><td style="${td}${num};font-weight:bold">${fmtE(summe)}</td><td style="${td}" colspan="2"></td></tr></tbody></table>`;
+  const tabelle = tab(false);
+  const text = [kopf, ...zeilen, ['Summe offen', '', '', '', '', '', '', fmtE(summe), '', '']].map(z => z.join('\t')).join('\n');
+  const n1 = l.filter(x => stufe(x.r) === '1. Mahnung').length;
+  const d = openSheet({ title: `Offene Kundenrechnungen (${l.length})`, wide: true, okLabel: '📋 Tabelle kopieren', cancelLabel: 'Schließen',
+    html: `<p class="small muted">Stand ${fmtD(heute)}. Häkchen bei „1. Mahnung“ setzt den Status der Rechnung auf Mahnung${n1 ? ` (gerade ${n1} markiert)` : ''}. „Tabelle kopieren“ und in die Mail einfügen (Strg + V) – die Tabelle bleibt erhalten.</p><div class="tw">${tab(true)}</div>`,
     onOk: async () => {
       try { await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([tabelle], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]); }
       catch (e) { await navigator.clipboard.writeText(text); }
       toast('Tabelle kopiert – jetzt in die Mail einfügen.'); return false;
     } });
+  d.addEventListener('change', async e => {
+    const id = e.target.dataset && e.target.dataset.mahn1; if (!id) return;
+    const r = S.rechnungen.find(x => x.id === id); if (!r) return;
+    const v = e.target.checked ? 'Mahnung' : (r.zahlart === 'sepa' ? 'Abbuchung offen' : 'Offen');
+    e.target.disabled = true;
+    try { await DB.update('rechnungen', r.id, { status_excel: v }); buildIdx(); render(); offeneListe(); toast(`${r.nummer || 'Rechnung'}: ${e.target.checked ? '1. Mahnung' : v}`); }
+    catch (err) { e.target.checked = !e.target.checked; e.target.disabled = false; toast('Fehler: ' + (err.message || err)); }
+  });
 }
 // Fortlaufende Nummern der Ausgangsrechnungen (R26-0001 …) je Jahr prüfen: Lücken und doppelte Nummern
 function nrPruefung() {
