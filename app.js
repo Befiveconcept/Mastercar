@@ -296,7 +296,7 @@ Object.assign(A, {
   hebeNeu: d => hebeForm(null, { datum: d.d || todayISO(), mitarbeiter: d.ma || '' }), hebeE: d => { const h = S.hebebuehne.find(x => x.id === d.id); if (h) hebeForm(h); },
   hebeKW: d => { const [y, w] = (UI.hebeKW || kwKey(todayISO())).split('-').map(Number); UI.hebeKW = +d.d === 0 ? kwKey(todayISO()) : kwKey(addDays(isoWeekMonday(y, w), 7 * +d.d)); render(); },
   hebeGo: d => { UI.hebeKW = d.k; render(); window.scrollTo(0, 0); },
-  guvZelle: d => guvZelle(d.k, +d.m, !!d.nur), guvCsv: () => guvCsv(), lstErfassen: () => lstErfassen(),
+  guvZelle: d => guvZelle(+d.l, +d.m), guvCsv: () => guvCsv(), lstErfassen: () => lstErfassen(),
   auswTab: d => { UI.auswTab = d.t; render(); window.scrollTo(0, 0); }, auswZelle: d => auswZelle(d.k), auswCsv: () => auswCsv(),
   pick: d => { const i = $('#tblIn'); i.dataset.t = d.t; i.click(); },
   pickBeleg: () => $('#belegIn').click(),

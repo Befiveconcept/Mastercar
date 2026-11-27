@@ -52,31 +52,31 @@ function guvRechnen(jahr, mitOhneBeleg) {
   const grpVal = k => { let w = zero(); for (const [key, z] of Z) if (key === k || key.startsWith(k + '|')) w = add(w, z.w); return w; };
   for (const g of GUV) {
     const w = grpVal(g.k);
-    lines.push({ typ: 'grp', label: g.k, konto: g.konto || '', w, key: g.k, sub: g.subs.length > 0 });
+    lines.push({ typ: 'grp', label: g.k, konto: g.konto || '', w, key: g.k, sub: g.subs.length > 0, art: g.typ });
     if (g.subs.length) {
       g.subs.forEach(([s, konto]) => lines.push({ typ: 'sub', label: s, konto, w: (Z.get(g.k + '|' + s) || { w: zero() }).w, key: g.k + '|' + s }));
       const rest = (Z.get(g.k) || { w: zero() }).w; if (rest.some(x => Math.abs(x) > 0.005)) lines.push({ typ: 'sub', label: 'ohne Unterposition', konto: '', w: rest, key: g.k, nur: true });
     }
     if (g.typ === 'e') ertrag = add(ertrag, w); else kosten = add(kosten, w);
-    if (g.k === 'sonstige betriebliche Erträge') lines.push({ typ: 'sum', label: 'Summe Erträge', w: ertrag });
+    if (g.k === 'sonstige betriebliche Erträge') lines.push({ typ: 'sum', label: 'Summe Erträge', w: ertrag, calc: 'ertrag' });
   }
   const ohne = (Z.get(OHNE) || { w: zero() }).w;
-  if (ohne.some(x => Math.abs(x) > 0.005)) { lines.push({ typ: 'grp', label: 'Kosten ohne Kategorie', konto: '', w: ohne, key: OHNE, warn: true }); kosten = add(kosten, ohne); }
+  if (ohne.some(x => Math.abs(x) > 0.005)) { lines.push({ typ: 'grp', label: 'Kosten ohne Kategorie', konto: '', w: ohne, key: OHNE, warn: true, art: 'k' }); kosten = add(kosten, ohne); }
   const erg = add(ertrag, kosten);
   // Ertragsteuer (30 %, geschätzt) auf das bis dahin AUFGELAUFENE Ergebnis: Verlustmonate werden verrechnet, nicht jeder Gewinnmonat einzeln besteuert
   let kumE = 0, bisher = 0; const steuer = erg.map(x => { kumE += x; const soll = kumE > 0 ? -0.3 * kumE : 0, m = soll - bisher; bisher = soll; return r2(m); });
   const jue = add(erg, steuer);
   let kum = 0; const kumW = jue.map(x => (kum += x));
-  lines.push({ typ: 'sum', label: 'Summe Kosten', w: kosten }, { typ: 'tot', label: 'Ergebnis vor Steuern', w: erg }, { typ: 'sub2', label: 'Steuern vom Einkommen und Ertrag (30 %, geschätzt, auf das aufgelaufene Ergebnis)', w: steuer }, { typ: 'tot', label: 'Jahresüberschuss / -fehlbetrag', w: jue }, { typ: 'sub2', label: 'Ergebnis kumuliert', w: kumW, kum: true });
+  lines.push({ typ: 'sum', label: 'Summe Kosten', w: kosten, calc: 'kosten' }, { typ: 'tot', label: 'Ergebnis vor Steuern', w: erg, calc: 'erg' }, { typ: 'sub2', label: 'Steuern vom Einkommen und Ertrag (30 %, geschätzt, auf das aufgelaufene Ergebnis)', w: steuer, calc: 'steuer' }, { typ: 'tot', label: 'Jahresüberschuss / -fehlbetrag', w: jue, calc: 'jue' }, { typ: 'sub2', label: 'Ergebnis kumuliert', w: kumW, kum: true, calc: 'kum' });
   // Umsatzsteuer – nicht Teil der GuV, zur Kontrolle der Voranmeldung
   const g = k => (Z.get(k) || { w: zero() }).w, ust = g('§USt'), vst = g('§VSt').map(x => -x), zl = ust.map((x, i) => r2(x - vst[i]));
   lines.push({ typ: 'grp', label: 'Umsatzsteuer (nicht in der GuV)', w: zero(), info: true },
     { typ: 'sub', label: 'Umsatzsteuer aus Rechnungsausgang', w: ust, key: '§USt', nur: true },
     { typ: 'sub', label: 'Vorsteuer aus Rechnungseingang', w: vst.map(x => -x), key: '§VSt', nur: true },
-    { typ: 'sum', label: 'USt-Zahllast (berechnet)', w: zl },
+    { typ: 'sum', label: 'USt-Zahllast (berechnet)', w: zl, calc: 'zl' },
     { typ: 'sub', label: 'Zahlungen ans Finanzamt (USt-Vorauszahlung, Lohnsteuer, Zuschläge)', w: g('§FA'), key: '§FA', nur: true },
     { typ: 'sub', label: 'davon Lohnsteuer (in Personalkosten gebucht)', w: g('§LSt'), key: '§LSt', nur: true },
-    { typ: 'sub', label: 'davon Umsatzsteuer und Sonstiges', w: g('§FA').map((x, i) => r2(x - g('§LSt')[i])) });
+    { typ: 'sub', label: 'davon Umsatzsteuer und Sonstiges', w: g('§FA').map((x, i) => r2(x - g('§LSt')[i])), calc: 'farest' });
   return { lines, Z };
 }
 const guvJahre = () => { const s = new Set(S.rechnungen.map(r => (r.datum || '').slice(0, 4)).filter(Boolean)); s.add(todayISO().slice(0, 4)); return [...s].sort().reverse(); };
@@ -89,27 +89,114 @@ function viewGuv() {   // Teil der Rubrik „Auswertungen“ (Jahr wählt viewAu
   const cur = todayISO().slice(0, 4) === UI.guvJahr ? +todayISO().slice(5, 7) : 12;
   const n = v => Math.abs(v) < 0.005 ? '<span class="muted">–</span>' : Math.round(v).toLocaleString('de-DE');
   const tot = w => w.reduce((a, b) => a + b, 0);
-  const row = l => {
+  /* jede Zahl ist anklickbar → Fenster mit Zusammensetzung bzw. Rechenweg (data-l = Zeile, data-m = Monat, 12 = Gesamt) */
+  const row = (l, li) => {
     const cls = { grp: 'g-grp', sub: 'g-sub', sum: 'g-sum', tot: 'g-tot', sub2: 'g-sub2' }[l.typ] + (l.warn ? ' g-warn' : '');
-    const click = l.key && !(l.typ === 'grp' && l.sub) || l.nur;
-    const gesamt = l.kum ? l.w[cur - 1] : tot(l.w);
-    return `<tr class="${cls}"><th>${esc(l.label)}${l.konto ? `<small>${esc(l.konto)}</small>` : ''}</th>${l.w.map((v, m) => `<td class="num ${v < -0.005 ? 'neg' : ''} ${m >= cur ? 'fut' : ''}" ${click && Math.abs(v) > 0.005 ? `data-act="guvZelle" data-k="${esc(l.key)}" data-m="${m}" data-nur="${l.nur ? 1 : ''}"` : ''}>${n(v)}</td>`).join('')}<td class="num g-ges ${gesamt < -0.005 ? 'neg' : ''}">${n(gesamt)}</td></tr>`;
+    const gesamt = l.kum ? l.w[cur - 1] : tot(l.w), klick = (v, m) => Math.abs(v) > 0.005 && !l.info ? `data-act="guvZelle" data-l="${li}" data-m="${m}" title="Anklicken: wie setzt sich die Zahl zusammen?"` : '';
+    return `<tr class="${cls}"><th>${esc(l.label)}${l.konto ? `<small>${esc(l.konto)}</small>` : ''}</th>${l.w.map((v, m) => `<td class="num ${v < -0.005 ? 'neg' : ''} ${m >= cur ? 'fut' : ''}" ${klick(v, m)}>${n(v)}</td>`).join('')}<td class="num g-ges ${gesamt < -0.005 ? 'neg' : ''}" ${klick(gesamt, 12)}>${n(gesamt)}</td></tr>`;
   };
   return { csv: false, knoepfe: `
     <label class="chk inline"><input type="checkbox" data-chg="guvOhne" ${UI.guvOhne ? 'checked' : ''}> Zahlungen ohne Beleg (Bank/Kasse) mitrechnen</label>
     ${lstOffen() ? `<button class="btn primary" data-act="lstErfassen" title="Lohnsteuer-Anteil der Finanzamt-Zahlungen eintragen">Lohnsteuer erfassen <span class="cnt">${lstOffen()}</span></button>` : `<button class="btn" data-act="lstErfassen">Lohnsteuer erfassen</button>`}
     <button class="btn" data-act="guvCsv">CSV</button>`, body: `
-  <p class="small muted">Automatisch aus Rechnungsausgang (netto) und Rechnungseingang (netto, nach Kategorie) nach Rechnungsdatum. Durchlaufende Posten (z. B. TÜV) und Zahlungen ans Finanzamt (Umsatzsteuer, Lohnsteuer) sind nicht enthalten – die stehen unten bei „Umsatzsteuer“. Den Lohnsteuer-Anteil dieser Zahlungen über „Lohnsteuer erfassen“ eintragen – er zählt dann als Personalkosten. Zahl anklicken = Belege dahinter. Vorläufige Auswertung – ersetzt nicht die BWA vom Steuerberater.</p>
+  <p class="small muted">Automatisch aus Rechnungsausgang (netto) und Rechnungseingang (netto, nach Kategorie) nach Rechnungsdatum. Durchlaufende Posten (z. B. TÜV) und Zahlungen ans Finanzamt (Umsatzsteuer, Lohnsteuer) sind nicht enthalten – die stehen unten bei „Umsatzsteuer“. Den Lohnsteuer-Anteil dieser Zahlungen über „Lohnsteuer erfassen“ eintragen – er zählt dann als Personalkosten. Jede Zahl anklicken = wie sie sich zusammensetzt und wie gerechnet wurde. Vorläufige Auswertung – ersetzt nicht die BWA vom Steuerberater.</p>
   <div class="tw guv"><table class="tb gtab"><thead><tr><th>Position</th>${MON.map(m => `<th class="num">${m}</th>`).join('')}<th class="num">Gesamt</th></tr></thead><tbody>${lines.map(row).join('')}</tbody></table></div>` };
 }
-function guvZelle(key, m, nur) {
-  const { Z } = guvRechnen(UI.guvJahr, !!UI.guvOhne);
-  let items = []; for (const [k, z] of Z) if (k === key || (!nur && k.startsWith(key + '|'))) items.push(...z.items.filter(i => i.m === m));
-  items.sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
-  const lbl = i => { if (i.t === 'r') { const r = S.rechnungen.find(x => x.id === i.id); return r ? [r.datum, r.partner, r.nummer || r.art || ''] : []; } const x = (i.t === 'b' ? S.bank : S.kasse).find(y => y.id === i.id); return x ? [x.datum, i.t === 'b' ? x.gegenpartei : 'Kasse', i.t === 'b' ? x.zweck : x.text] : []; };
-  const NAMEN = { '§USt': 'Umsatzsteuer', '§VSt': 'Vorsteuer', '§FA': 'Zahlungen ans Finanzamt', '§LSt': 'Lohnsteuer' };
-  openSheet({ title: (NAMEN[key] || key.replace('|', ' · ')) + ' · ' + MONATE[m] + ' ' + UI.guvJahr, wide: true, noOk: true, html: `<div class="sumline">${items.length} Einträge · ${fmtE(sum(items, i => i.v))}</div>
-    <div class="tw"><table class="tb click"><tbody>${items.slice(0, 400).map(i => { const [d, p, x] = lbl(i); return `<tr data-act="${i.t === 'r' ? 'rechnung' : i.t === 'b' ? 'bank' : 'kasseD'}" data-id="${i.id}"><td>${fmtD(d)}</td><td>${esc(p || '')}</td><td class="zweck">${esc(x || '')}</td><td class="num ${i.v < 0 ? 'neg' : ''}">${fmtE(i.v)}</td></tr>`; }).join('')}</tbody></table></div>` });
+/* Klick auf eine Zahl der GuV: Zusammensetzung (Teilsummen) bzw. Belege mit Rechenweg je Beleg */
+function guvZelle(li, m) {
+  const { lines, Z } = guvRechnen(UI.guvJahr, !!UI.guvOhne), l = lines[li]; if (!l) return;
+  const J = UI.guvJahr, cur = todayISO().slice(0, 4) === J ? +todayISO().slice(5, 7) : 12;
+  if (l.kum && m === 12) m = cur - 1;
+  const ges = m === 12, wert = x => ges ? x.w.reduce((a, b) => a + b, 0) : x.w[m], zeit = ges ? 'Gesamtjahr ' + J : MONATE[m] + ' ' + J;
+  const vz = v => `<span class="${v < -0.005 ? 'neg' : ''}">${fmtE(v)}</span>`;
+  const box = t => `<div class="note small" style="margin-bottom:10px"><b>Rechenweg:</b> ${t}</div>`;
+  /* Teilsummen-Tabelle: jede Zeile führt weiter zur Herkunft dieser Teilsumme */
+  const teile = (rows, formel) => `${box(formel)}<div class="tw"><table class="tb click"><tbody>${rows.filter(r => Math.abs(r[1]) > 0.005).map((r, n) => [r[0], r[1], r[2], n && r[3] !== undefined ? '+' : '']).map(([lbl, v, i, vor]) => `<tr ${i != null ? `data-act="guvZelle" data-l="${i}" data-m="${m}"` : ''}><td>${vor || ''}</td><td>${esc(lbl)}</td><td class="num">${vz(v)}</td></tr>`).join('')}
+    <tr class="g-sum"><td>=</td><td><b>${esc(l.label)}</b></td><td class="num"><b>${vz(wert(l))}</b></td></tr></tbody></table></div><p class="small muted">Zeile anklicken = woraus sich diese Teilsumme zusammensetzt.</p>`;
+  const idx = pred => lines.map((x, i) => [x, i]).filter(([x]) => pred(x));
+  let html = '';
+  if (l.calc === 'ertrag' || l.calc === 'kosten') {
+    const art = l.calc === 'ertrag' ? 'e' : 'k';
+    html = teile(idx(x => x.typ === 'grp' && x.art === art).map(([x, i], n) => [x.label, wert(x), i, n ? '+' : '']), l.calc === 'ertrag' ? 'Summe aller Ertrags-Positionen.' : 'Summe aller Kosten-Positionen (Kosten stehen als Minus).');
+  } else if (l.calc === 'erg') {
+    html = teile(idx(x => x.calc === 'ertrag' || x.calc === 'kosten').map(([x, i], n) => [x.label, wert(x), i, n ? '+' : '']), 'Summe Erträge + Summe Kosten (die Kosten sind negativ, werden also abgezogen).');
+  } else if (l.calc === 'jue') {
+    html = teile(idx(x => x.calc === 'erg' || x.calc === 'steuer').map(([x, i], n) => [x.label, wert(x), i, n ? '+' : '']), 'Ergebnis vor Steuern + geschätzte Ertragsteuer (negativ).');
+  } else if (l.calc === 'kum') {
+    const jl = lines.findIndex(x => x.calc === 'jue'), jw = lines[jl].w;
+    html = teile(jw.slice(0, m + 1).map((v, i) => [MONATE[i] + ': Jahresüberschuss / -fehlbetrag', v, null, i ? '+' : '']), `Jahresüberschuss der Monate Januar bis ${MONATE[m]} aufaddiert.`);
+  } else if (l.calc === 'steuer') {
+    const erg = lines.find(x => x.calc === 'erg').w, bis = ges ? 11 : m;
+    const kumBis = i => i < 0 ? 0 : erg.slice(0, i + 1).reduce((a, b) => a + b, 0), soll = i => { const k = kumBis(i); return k > 0 ? -0.3 * k : 0; };
+    html = box(`Geschätzt 30 % Ertragsteuer (Körperschaft-, Gewerbesteuer, Soli) auf das <b>bis dahin aufgelaufene</b> Ergebnis. Verlustmonate werden mit Gewinnmonaten verrechnet; je Monat steht nur der Zuwachs der Steuer. Kein Steuerbescheid – nur eine Schätzung.`) +
+      `<div class="tw"><table class="tb"><tbody>
+      <tr><td>Ergebnis vor Steuern Januar – ${MONATE[bis]}</td><td class="num">${vz(kumBis(bis))}</td></tr>
+      <tr><td>davon 30 % (nur wenn positiv) = Steuer bis ${MONATE[bis]}</td><td class="num">${vz(soll(bis))}</td></tr>
+      ${ges ? '' : `<tr><td>abzüglich: schon bis ${m ? MONATE[m - 1] : 'Jahresbeginn'} angesetzt</td><td class="num">${vz(soll(m - 1) || 0)}</td></tr>`}
+      <tr class="g-sum"><td><b>= Steuer ${zeit}</b></td><td class="num"><b>${vz(wert(l))}</b></td></tr></tbody></table></div>`;
+  } else if (l.calc === 'zl') {
+    html = teile(idx(x => x.key === '§USt' || x.key === '§VSt').map(([x, i], n) => [x.label, wert(x), i, n ? '+' : '']), 'Umsatzsteuer aus den Ausgangsrechnungen minus Vorsteuer aus den Eingangsrechnungen (Vorsteuer steht als Minus).');
+  } else if (l.calc === 'farest') {
+    const fa = idx(x => x.key === '§FA')[0], ls = idx(x => x.key === '§LSt')[0];
+    html = box('Zahlungen ans Finanzamt minus den Lohnsteuer-Anteil (der steht bei den Personalkosten).') + `<div class="tw"><table class="tb click"><tbody>
+      <tr data-act="guvZelle" data-l="${fa[1]}" data-m="${m}"><td></td><td>${esc(fa[0].label)}</td><td class="num">${vz(wert(fa[0]))}</td></tr>
+      <tr data-act="guvZelle" data-l="${ls[1]}" data-m="${m}"><td>−</td><td>${esc(ls[0].label)}</td><td class="num">${vz(wert(ls[0]))}</td></tr>
+      <tr class="g-sum"><td>=</td><td><b>${esc(l.label)}</b></td><td class="num"><b>${vz(wert(l))}</b></td></tr></tbody></table></div>`;
+  } else if (l.typ === 'grp' && l.sub) {
+    const subs = []; for (let i = li + 1; i < lines.length && lines[i].typ === 'sub'; i++) subs.push([lines[i].label, wert(lines[i]), i, subs.length ? '+' : '']);
+    html = teile(subs, `Summe der Unterpositionen von „${esc(l.label)}“.`);
+  } else if (l.key) {
+    html = guvBelege(l, Z, m, wert(l));
+  }
+  openSheet({ title: `${l.label} · ${zeit}`, wide: true, noOk: true, html });
+}
+/* Belege einer Position mit Rechenweg je Beleg */
+function guvBelege(l, Z, m, gesamt) {
+  const key = l.key, ges = m === 12;
+  let items = []; for (const [k, z] of Z) if (k === key || (!l.nur && k.startsWith(key + '|'))) items.push(...z.items.filter(i => ges || i.m === m));
+  items.sort((a, b) => ges ? a.m - b.m || Math.abs(b.v) - Math.abs(a.v) : Math.abs(b.v) - Math.abs(a.v));
+  const e = v => fmtE(+v || 0);
+  const nettoWeg = r => {
+    const dl = +r.durchlaufend || 0, b = +r.brutto || 0;
+    if (r.netto != null) return `Netto laut Rechnung ${e(r.netto)}` + (dl ? ` (durchlaufender Posten ${e(dl)} nicht enthalten)` : '');
+    if (r.mwst != null) return `Brutto ${e(b)}${dl ? ' − durchl. Posten ' + e(dl) : ''} − MwSt ${e(r.mwst)}`;
+    if (r.mwst_pflicht === false) return `Brutto ${e(b)}${dl ? ' − durchl. Posten ' + e(dl) : ''} (ohne MwSt)`;
+    return `(Brutto ${e(b)}${dl ? ' − durchl. Posten ' + e(dl) : ''}) ÷ 1,19 – MwSt nicht angegeben, 19 % angenommen`;
+  };
+  const weg = i => {
+    if (i.t === 'r') { const r = S.rechnungen.find(x => x.id === i.id); if (!r) return ['', '', '', ''];
+      const kopf = [r.datum, r.partner, r.nummer || r.art || ''];
+      if (key === '§USt') return [...kopf, `MwSt der Ausgangsrechnung (Brutto ${e(r.brutto)})`];
+      if (key === '§VSt') return [...kopf, `MwSt der Eingangsrechnung = Vorsteuer (Brutto ${e(r.brutto)})`];
+      if (key === '§FA') return [...kopf, `Betrag der Finanzamt-Zahlung`];
+      if (istFinanzamt(r)) return [...kopf, `Lohnsteuer-Anteil der Finanzamt-Zahlung über ${e(r.brutto)} (eingetragen über „Lohnsteuer erfassen“)`];
+      return [...kopf, nettoWeg(r) + (r.richtung === 'eingang' ? ' → als Kosten mit Minus' : '') + (r.art && r.art !== 'Rechnung' ? ` · ${r.art}` : '')];
+    }
+    if (i.t === 'b') { const b = S.bank.find(x => x.id === i.id); if (!b) return ['', '', '', ''];
+      const kopf = [b.datum, b.gegenpartei, b.zweck];
+      if (personalErstattung(b)) return [...kopf, 'Erstattung der Krankenkasse (AAG) – mindert die Personalkosten'];
+      if (restAusKosten(b)) return [...kopf, 'Ausgebuchter Rest dieser Bankzahlung (z. B. Mahngebühr), Rechnung ist zugeordnet'];
+      if (key === '§FA') return [...kopf, 'Bankzahlung ans Finanzamt ohne Beleg'];
+      return [...kopf, `Bankzahlung ohne Beleg – voller Betrag ${e(b.betrag)}, keine Vorsteuer abgezogen`];
+    }
+    const k = S.kasse.find(x => x.id === i.id); return k ? [k.datum, 'Kasse', k.text, `Kassenausgabe ohne Beleg – voller Betrag ${e(k.betrag)}`] : ['', '', '', ''];
+  };
+  const kat = key.replace('|', ' › ');
+  const F = {
+    'Umsatzerlöse': 'Summe der Netto-Beträge aller Ausgangsrechnungen (Gutschriften und Stornos als Minus) nach Rechnungsdatum. Durchlaufende Posten (z. B. TÜV) zählen nicht.',
+    '§USt': 'Summe der MwSt aller Ausgangsrechnungen nach Rechnungsdatum.',
+    '§VSt': 'Summe der MwSt aller Eingangsrechnungen (ohne Finanzamt) nach Rechnungsdatum, als Minus.',
+    '§FA': 'Alle Zahlungen ans Finanzamt (Umsatzsteuer-Vorauszahlung, Lohnsteuer, Zuschläge) – keine Kosten in der GuV.',
+    '§LSt': 'Lohnsteuer-Anteile, die bei den Finanzamt-Zahlungen eingetragen sind; sie zählen als Personalkosten.'
+  }[key] || (key === OHNE ? 'Eingangsrechnungen (und ggf. Zahlungen ohne Beleg) ohne gültige Kategorie, netto als Minus. Bitte Kategorie nachtragen.'
+    : `Summe der Netto-Beträge aller Eingangsrechnungen mit Kategorie „${esc(kat)}“${l.nur && !key.includes('|') ? ' ohne Unterposition' : ''} nach Rechnungsdatum, als Minus.` + (key === 'Personalkosten' ? ' Dazu der eingetragene Lohnsteuer-Anteil der Finanzamt-Zahlungen.' : ''));
+  const ohneB = (key.startsWith('§') && key !== '§FA') || key === 'Umsatzerlöse' || l.art === 'e' ? '' : UI.guvOhne ? ' Dazu Bank- und Kassenzahlungen ohne Beleg mit dieser Kategorie (Häkchen oben ist an).' : ' Zahlungen ohne Beleg sind nicht dabei (Häkchen „Zahlungen ohne Beleg mitrechnen“ ist aus).';
+  const tab = items.slice(0, 500).map(i => { const [d, p, x, w] = weg(i);
+    return `<tr data-act="${i.t === 'r' ? 'rechnung' : i.t === 'b' ? 'bank' : 'kasseD'}" data-id="${i.id}">${ges ? `<td class="small">${MONATE[i.m].slice(0, 3)}</td>` : ''}<td>${fmtD(d)}</td><td>${esc(p || '')}<div class="small muted zweck">${esc(String(x || '').slice(0, 90))}</div></td><td class="small">${w}</td><td class="num ${i.v < 0 ? 'neg' : ''}">${fmtE(i.v)}</td></tr>`; }).join('');
+  return `<div class="note small" style="margin-bottom:10px"><b>Rechenweg:</b> ${F}${ohneB}</div>
+    <div class="sumline">${items.length} Einträge · Summe <b>${fmtE(sum(items, i => i.v))}</b>${Math.abs(sum(items, i => i.v) - gesamt) > 0.5 ? ` <span class="neg">(Anzeige in der GuV: ${fmtE(gesamt)})</span>` : ''}</div>
+    <div class="tw"><table class="tb click"><thead><tr>${ges ? '<th>Monat</th>' : ''}<th>Datum</th><th>Partner / Text</th><th>Rechenweg</th><th class="num">Betrag</th></tr></thead><tbody>${tab}</tbody></table></div>
+    ${items.length > 500 ? `<p class="small muted">Nur die ersten 500 von ${items.length} Einträgen angezeigt.</p>` : ''}`;
 }
 /* Lohnsteuer-Anteil je Finanzamt-Zahlung erfassen (aus Lohnabrechnung / Lohnsteuer-Anmeldung) → zählt als Personalkosten,
    der Rest der Zahlung ist Umsatzsteuer (keine Kosten). Gespeichert im Feld „lohn“ der Finanzamt-Buchung. */
