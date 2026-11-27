@@ -24,7 +24,9 @@ async function rechnungDetail(id) {
           <dt>Rechnungsnr.</dt><dd class="mono">${esc(r.nummer || '–')}</dd>
           <dt>Datum</dt><dd>${fmtD(r.datum)}</dd><dt>Fällig</dt><dd>${fmtD(faelligAm(r))}</dd>
           ${isA ? `${r.kundennr ? `<dt>Kd.-Nr.</dt><dd class="mono">${esc(r.kundennr)}</dd>` : ''}<dt>Kennzeichen</dt><dd class="mono">${esc(r.kennzeichen || '–')}</dd><dt>Zahlart</dt><dd>${esc(ZA[r.zahlart] || '–')}</dd>
-            ${r.lohn != null || r.teile != null ? `<dt>Aufteilung netto</dt><dd>Werkstatt ${fmtE(r.lohn || 0)} · Ersatzteile ${fmtE(r.teile || 0)}${r.sonstiges ? ' · Sonstiges ' + fmtE(r.sonstiges) : ''}${r.altteile ? ' · Altteile ' + fmtE(r.altteile) : ''}</dd>` : ''}`
+            ${r.lohn != null || r.teile != null ? `<dt>Aufteilung netto</dt><dd>Werkstatt ${fmtE(r.lohn || 0)} · Ersatzteile ${fmtE(r.teile || 0)}${r.sonstiges ? ' · Sonstiges ' + fmtE(r.sonstiges) : ''}${r.altteile ? ' · Altteile ' + fmtE(r.altteile) : ''}</dd>` : ''}
+            ${(() => { const p = typeof hebeZuRechnung === 'function' ? hebeZuRechnung(r.id) : null; if (!p) return ''; const satz = STUNDENSATZ(), lohn = +r.lohn || 0;
+              return `<dt>Hebebühne</dt><dd><b>${hStd(p.std)}</b> gearbeitet · auf Rechnung ${hStd(lohn / satz)} (${fmtE(lohn)} ÷ ${fmtE(satz)})${p.std ? ' · <b>' + fmtE(lohn / p.std) + ' je Bühnen-Stunde</b>' : ''}<div class="small muted">${p.jobs.slice().sort((a, b) => a.h.datum.localeCompare(b.h.datum)).map(x => `${wtag(x.h.datum)} ${esc(x.h.mitarbeiter)} ${hStd(x.std)}`).join(' · ')}</div></dd>`; })()}`
             : `<dt>Kategorie (GuV)</dt><dd>${esc(r.kostenart || '–')}${r.unterkonto ? ' · ' + esc(r.unterkonto) : ''}${r.fix != null ? ' · ' + (r.fix ? 'Fixkosten' : 'variabel') : ''}</dd><dt>Art</dt><dd>${esc(r.art || '–')}</dd><dt>Zahlart</dt><dd>${esc(ZA[r.zahlart] || '–')}</dd><dt>IBAN</dt><dd class="mono">${esc(r.iban || '–')}</dd>`}
           ${r.skonto ? `<dt>Skonto</dt><dd>${fmtE(r.skonto)} → zu zahlen ${fmtE(sollOf(r))}</dd>` : ''}
           ${r.durchlaufend ? `<dt>Durchlaufender Posten</dt><dd>${fmtE(r.durchlaufend)}</dd>` : ''}
